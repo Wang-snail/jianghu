@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 本地Telegram Bot实现
- * 不依赖云端服务，直接处理Telegram消息
+ * 不依赖本地服务，直接处理Telegram消息
  */
 
 const express = require('express')
@@ -33,7 +33,7 @@ app.post(WEBHOOK_PATH, async (req, res) => {
 
     console.log(`📨 收到消息: ${text} (chatId: ${chatId})`)
 
-    // 这里应该调用虫族的API来处理消息
+    // 这里应该调用江湖的API来处理消息
     // 暂时回复一个确认消息
     await sendTelegramMessage(chatId, `收到您的消息: ${text}\n\n正在处理中...`)
 
@@ -175,7 +175,7 @@ async function main() {
           process.exit(1)
         }
 
-        await sendTelegramMessage(chatId, `🤖 虫族测试消息\n\n${text}`)
+        await sendTelegramMessage(chatId, `🤖 江湖测试消息\n\n${text}`)
         console.log(`✅ 消息已发送到 ${chatId}`)
         break
       }

@@ -230,7 +230,7 @@ function translateFile(filePath) {
   return changeCount
 }
 
-console.log('🦟 公司本地 UI 组件批量中文翻译\n')
+console.log('🦟 江湖 UI 组件批量中文翻译\n')
 console.log('开始处理...\n')
 
 let totalChanges = 0

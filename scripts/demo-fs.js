@@ -1,5 +1,5 @@
 /**
- * 公司本地文件系统演示
+ * 江湖文件系统演示
  *
  * 展示如何使用新的文件系统存储功能
  */
@@ -20,7 +20,7 @@ import {
   getRoomStats,
 } from '../shared/fs-integration'
 
-const DATA_DIR = path.join(homedir(), '.公司本地')
+const DATA_DIR = path.join(homedir(), '.jianghu')
 const DB_PATH = path.join(DATA_DIR, 'data.db')
 
 /**
@@ -128,7 +128,7 @@ function formatBytes(bytes: number): string {
  * 主函数
  */
 async function main() {
-  console.log('\n🦟 公司本地文件系统演示\n')
+  console.log('\n🦟 江湖文件系统演示\n')
   console.log('数据目录:', DATA_DIR)
   console.log('数据库:', DB_PATH)
   console.log('公司目录:', path.join(DATA_DIR, 'rooms/'))

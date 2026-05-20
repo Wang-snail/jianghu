@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 公司本地 UI中文翻译脚本
+ * 江湖 UI中文翻译脚本
  * 自动翻译UI组件中的关键文本
  */
 
@@ -240,7 +240,7 @@ function translateFile(filePath) {
 }
 
 // 执行翻译
-console.log('🦟 公司本地 UI 组件中文翻译\n')
+console.log('🦟 江湖 UI 组件中文翻译\n')
 console.log('开始处理...\n')
 
 UI_COMPONENTS.forEach(file => {

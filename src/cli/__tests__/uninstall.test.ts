@@ -69,7 +69,7 @@ describe('runUninstall', () => {
     const runUninstall = await importRunUninstall()
     try { runUninstall() } catch { /* expected */ }
     expect(mockQuestion).toHaveBeenCalledOnce()
-    expect(mockQuestion.mock.calls[0][0]).toMatch(/remove 公司本地/)
+    expect(mockQuestion.mock.calls[0][0]).toMatch(/remove 江湖/)
     mockExit.mockRestore()
   })
 })
@@ -92,21 +92,21 @@ describe('uninstall — Windows path', () => {
     expect(calls.some((cmd: string) => cmd.includes('taskkill'))).toBe(true)
   })
 
-  it('calls powershell to stop port 3700 listeners', async () => {
+  it('calls powershell to stop port 4700 listeners', async () => {
     answerYes()
     const runUninstall = await importRunUninstall()
     runUninstall()
     const calls = mockExecSync.mock.calls.map((c: unknown[]) => c[0])
-    expect(calls.some((cmd: string) => cmd.includes('Get-NetTCPConnection') && cmd.includes('3700'))).toBe(true)
+    expect(calls.some((cmd: string) => cmd.includes('Get-NetTCPConnection') && cmd.includes('4700'))).toBe(true)
   })
 
   it('removes data directory when it exists', async () => {
     answerYes()
-    mockExistsSync.mockImplementation((p: string) => p.endsWith('.company'))
+    mockExistsSync.mockImplementation((p: string) => p.endsWith('.jianghu'))
     const runUninstall = await importRunUninstall()
     runUninstall()
     expect(mockRmSync).toHaveBeenCalledWith(
-      expect.stringContaining('.company'),
+      expect.stringContaining('.jianghu'),
       { recursive: true, force: true }
     )
   })
@@ -115,19 +115,19 @@ describe('uninstall — Windows path', () => {
     answerYes()
     mockExecSync.mockImplementation((cmd: string) => {
       if (typeof cmd === 'string' && cmd.includes('reg query')) {
-        return '    InstallDir    REG_SZ    C:\\Program Files\\公司本地\r\n'
+        return '    InstallDir    REG_SZ    C:\\Program Files\\江湖\r\n'
       }
       return ''
     })
     mockExistsSync.mockImplementation((p: string) => {
-      if (p === 'C:\\Program Files\\公司本地') return true
-      if (p.endsWith('.company')) return true
+      if (p === 'C:\\Program Files\\江湖') return true
+      if (p.endsWith('.jianghu')) return true
       return false
     })
     const runUninstall = await importRunUninstall()
     runUninstall()
     expect(mockRmSync).toHaveBeenCalledWith(
-      'C:\\Program Files\\公司本地',
+      'C:\\Program Files\\江湖',
       { recursive: true, force: true }
     )
   })
@@ -137,8 +137,8 @@ describe('uninstall — Windows path', () => {
     const runUninstall = await importRunUninstall()
     runUninstall()
     const calls = mockExecSync.mock.calls.map((c: unknown[]) => c[0])
-    expect(calls.some((cmd: string) => cmd.includes('reg delete') && cmd.includes('Software\\公司本地'))).toBe(true)
-    expect(calls.some((cmd: string) => cmd.includes('reg delete') && cmd.includes('Uninstall\\公司本地'))).toBe(true)
+    expect(calls.some((cmd: string) => cmd.includes('reg delete') && cmd.includes('Software\\江湖'))).toBe(true)
+    expect(calls.some((cmd: string) => cmd.includes('reg delete') && cmd.includes('Uninstall\\江湖'))).toBe(true)
   })
 
   it('does not call pkill or sudo on Windows', async () => {
@@ -171,7 +171,7 @@ describe('uninstall — Unix path', () => {
     const runUninstall = await importRunUninstall()
     runUninstall()
     expect(mockRmSync).toHaveBeenCalledWith(
-      expect.stringContaining('.company'),
+      expect.stringContaining('.jianghu'),
       { recursive: true, force: true }
     )
   })

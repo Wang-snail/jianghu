@@ -46,7 +46,7 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
             <p>
               {APP_MODE === 'cloud'
                 ? '托管服务器、SQLite数据库。'
-                : <>服务器位于 <span className="font-mono text-text-secondary">localhost:3700</span>，SQLite数据库。</>
+                : <>服务器位于 <span className="font-mono text-text-secondary">localhost:4700</span>，SQLite数据库。</>
               }{' '}
               天机阁和弟子支持 Claude、Codex、MiMo、OpenAI 和 Anthropic API 模型。
             </p>

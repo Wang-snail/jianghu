@@ -228,7 +228,7 @@ describe('runCycle', () => {
     expect(callArgs.systemPrompt).toContain('所有角色通用能力协议')
     expect(callArgs.systemPrompt).toContain('本地软件执行')
     expect(callArgs.systemPrompt).toContain('Claude Code 式问题处理')
-    expect(callArgs.systemPrompt).not.toContain('连接云服务')
+    expect(callArgs.systemPrompt).not.toContain('外部托管')
     expect(callArgs.prompt).toContain('## 自动激活的功法')
     expect(callArgs.prompt).toContain('收入增长方法')
     expect(callArgs.prompt).toContain('优先选择可以直接产生收入的动作')

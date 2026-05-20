@@ -1,7 +1,7 @@
 /**
  * Watch mode: rebuild MCP/CLI/server on source changes and restart the server.
  *
- * Usage: node scripts/dev-server.js [--port 3700]
+ * Usage: node scripts/dev-server.js [--port 4700]
  */
 
 const { spawn } = require('child_process')
@@ -13,7 +13,7 @@ const IS_WIN = process.platform === 'win32'
 
 const port = (() => {
   const i = process.argv.indexOf('--port')
-  return i !== -1 ? process.argv[i + 1] : '3700'
+  return i !== -1 ? process.argv[i + 1] : '4700'
 })()
 
 const EXTERNALS = [

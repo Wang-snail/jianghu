@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * 虫族 CLI — Console mode entry point
+ * 江湖 CLI — Console mode entry point
  *
  * Usage:
  *   zuzu mcp                # Start MCP server (stdio)
@@ -102,8 +102,8 @@ function runBundledCli(): void {
     case 'serve': {
       const portIdx = args.indexOf('--port')
       const rawPort = portIdx !== -1 ? args[portIdx + 1] : args[1]
-      const parsedPort = rawPort ? Number.parseInt(rawPort, 10) : 3700
-      const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 3700
+      const parsedPort = rawPort ? Number.parseInt(rawPort, 10) : 4700
+      const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 4700
       const { startServer } = require('../server/index')
       startServer({ port })
       break
@@ -124,16 +124,16 @@ function runBundledCli(): void {
     case 'help':
     default: {
       console.log(`
-虫族 — Autonomous AI Agent Collective
+江湖 — 本地 AI 数字组织生态系统
 
 Usage:
   zuzu mcp           Start MCP server (stdio transport)
-  zuzu serve [port]  Start HTTP/WebSocket API server (default: 3700)
+  zuzu serve [port]  Start HTTP/WebSocket API server (default: 4700)
   zuzu update        Check for and apply updates
-  zuzu uninstall     Remove 虫族 and all data
+  zuzu uninstall     Remove 江湖 and all data
   zuzu help          Show this help message
 
-Dashboard:  http://localhost:3700
+Dashboard:  http://localhost:4700
 Website:    https://zuzu.ai
 `)
       break

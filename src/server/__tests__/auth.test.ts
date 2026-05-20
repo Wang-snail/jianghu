@@ -90,7 +90,7 @@ describe('isAllowedOrigin', () => {
   it('allows localhost', () => {
     expect(isAllowedOrigin('http://localhost')).toBe(true)
     expect(isAllowedOrigin('http://localhost:3000')).toBe(true)
-    expect(isAllowedOrigin('http://localhost:3700')).toBe(true)
+    expect(isAllowedOrigin('http://localhost:4700')).toBe(true)
   })
 
   it('allows 127.0.0.1', () => {
@@ -117,8 +117,8 @@ describe('isLocalOrigin', () => {
 
   it('allows localhost only', () => {
     expect(isLocalOrigin('http://localhost')).toBe(true)
-    expect(isLocalOrigin('http://127.0.0.1:3700')).toBe(true)
-    expect(isLocalOrigin('http://[::1]:3700')).toBe(true)
+    expect(isLocalOrigin('http://127.0.0.1:4700')).toBe(true)
+    expect(isLocalOrigin('http://[::1]:4700')).toBe(true)
     expect(isLocalOrigin('https://app.company.ai')).toBe(false)
     expect(isLocalOrigin('http://example.com')).toBe(false)
   })

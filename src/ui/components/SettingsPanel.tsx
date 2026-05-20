@@ -510,7 +510,7 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
             <div className="flex items-center gap-1">
               <input
                 type="number"
-                defaultValue={storageGet('zuzu_port') || '3700'}
+                defaultValue={storageGet('zuzu_port') || '4700'}
                 className="w-16 px-2 py-1 text-xs border border-border-primary rounded text-center font-mono bg-surface-primary text-text-primary"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {

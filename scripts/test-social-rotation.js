@@ -10,7 +10,7 @@ function parseArgs(argv) {
     target: 'src/ui/public/social.png',
     state: 'src/ui/public/social-rotation-state.json',
     html: 'src/ui/index.html',
-    url: process.env.SOCIAL_TEST_URL || 'http://127.0.0.1:3700/social.png',
+    url: process.env.SOCIAL_TEST_URL || 'http://127.0.0.1:4700/social.png',
     strictHeaders: false,
   };
 

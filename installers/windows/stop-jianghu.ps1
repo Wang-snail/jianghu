@@ -16,20 +16,20 @@ try {
 
 $selfPid = $PID
 
-function Is-QuoroomProcess([object]$ProcessInfo, [string]$RootLower) {
+function Is-JianghuProcess([object]$ProcessInfo, [string]$RootLower) {
   $exe = ""
   $cmd = ""
   if ($ProcessInfo.ExecutablePath) { $exe = $ProcessInfo.ExecutablePath.ToLowerInvariant() }
   if ($ProcessInfo.CommandLine) { $cmd = $ProcessInfo.CommandLine.ToLowerInvariant() }
 
   if ($exe.Contains($RootLower) -or $cmd.Contains($RootLower)) { return $true }
-  if ($cmd.Contains("quoroom-tray.ps1") -or $cmd.Contains("quoroom-launch.vbs")) { return $true }
-  if ($cmd.Contains("\quoroom\bin\quoroom.cmd")) { return $true }
+  if ($cmd.Contains("jianghu-tray.ps1") -or $cmd.Contains("jianghu-launch.vbs")) { return $true }
+  if ($cmd.Contains("\jianghu\bin\zuzu.cmd")) { return $true }
   return $false
 }
 
 # Kill by port ownership first (catches elevated/zombie processes with unreadable command lines)
-$portProcs = Get-NetTCPConnection -LocalPort 3700 -EA SilentlyContinue |
+$portProcs = Get-NetTCPConnection -LocalPort 4700 -EA SilentlyContinue |
   Where-Object { $_.OwningProcess -gt 4 } |
   Select-Object -ExpandProperty OwningProcess -Unique
 
@@ -45,7 +45,7 @@ $filter = "Name='node.exe' OR Name='powershell.exe' OR Name='pwsh.exe' OR Name='
 
 for ($attempt = 0; $attempt -lt 5; $attempt++) {
   $candidates = @(Get-CimInstance Win32_Process -Filter $filter)
-  $targets = @($candidates | Where-Object { $_.ProcessId -ne $selfPid -and (Is-QuoroomProcess $_ $installRoot) })
+  $targets = @($candidates | Where-Object { $_.ProcessId -ne $selfPid -and (Is-JianghuProcess $_ $installRoot) })
 
   if ($targets.Count -eq 0) {
     break
@@ -59,9 +59,9 @@ for ($attempt = 0; $attempt -lt 5; $attempt++) {
   Start-Sleep -Milliseconds 600
 }
 
-# Final check: kill any remaining port 3700 owners
+# Final check: kill any remaining port 4700 owners
 Start-Sleep -Milliseconds 300
-$remaining = Get-NetTCPConnection -LocalPort 3700 -EA SilentlyContinue |
+$remaining = Get-NetTCPConnection -LocalPort 4700 -EA SilentlyContinue |
   Where-Object { $_.OwningProcess -gt 4 -and $_.OwningProcess -ne $selfPid } |
   Select-Object -ExpandProperty OwningProcess -Unique
 

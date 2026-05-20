@@ -1,6 +1,6 @@
 import { storageGet, storageSet, storageRemove } from './storage'
 
-const DEFAULT_PORT = 3700
+const DEFAULT_PORT = 4700
 const CLOUD_TOKEN_STORAGE_KEY = 'zuzu_cloud_token'
 const CLOUD_TOKEN_QUERY_KEY = 'token'
 const CLOUD_MODE_FLAG_KEY = 'zuzu_cloud_mode'

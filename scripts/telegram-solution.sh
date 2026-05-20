@@ -1,7 +1,7 @@
 #!/bin/bash
-# 虫族Telegram Bot - 完整解决方案
+# 江湖Telegram Bot - 完整解决方案
 
-echo "=== 虫族Telegram Bot解决方案 ==="
+echo "=== 江湖Telegram Bot解决方案 ==="
 echo ""
 
 # 配置
@@ -42,12 +42,12 @@ echo ""
 echo "✅ Bot连接正常！"
 echo ""
 
-# 方案A：云端验证方式（推荐，更稳定）
-echo "=== 方案A：云端验证方式（虫族默认）==="
+# 方案A：本地验证方式（推荐，更稳定）
+echo "=== 方案A：本地验证方式==="
 echo ""
 echo "📝 优点:"
 echo "   1. 功能完整 - 完整的Clerk集成"
-echo "   2. 更稳定 - 云端服务处理所有复杂逻辑"
+echo "   2. 更稳定 - 本地服务处理所有复杂逻辑"
 echo "   3. 支持多设备 - Webhook可指向多个地址"
 echo "   4. 开发友好 - 无需自己配置Webhook"
 echo ""
@@ -61,7 +61,7 @@ echo "   6. 验证成功后，机器人会正常回复"
 echo ""
 echo "⚠️  注意:"
 echo "   如果之前链接失败，需要先断开旧链接"
-echo "   在公司本地界面中可以：全局设置 > 通知 > 断开Telegram"
+echo "   在江湖界面中可以：全局设置 > 通知 > 断开Telegram"
 echo ""
 
 # 方案B：手动测试（快速验证）
@@ -92,18 +92,18 @@ echo ""
 # 诊断当前状态
 echo "=== 诊断当前状态 ==="
 echo "检查数据库中的Telegram配置..."
-sqlite3 ~/.虫族/data.db "SELECT key, value FROM settings WHERE key LIKE 'contact_telegram%';" 2>/dev/null
+sqlite3 ~/.jianghu/data.db "SELECT key, value FROM settings WHERE key LIKE 'contact_telegram%';" 2>/dev/null
 echo ""
 
 echo "建议操作:"
 echo "1. 首先断开旧的Telegram链接（如果有的话）"
-echo "   在虫族UI中: 全局设置 > 通知 > 断开Telegram"
+echo "   在江湖UI中: 全局设置 > 通知 > 断开Telegram"
 echo ""
 echo "2. 重新连接Telegram"
 echo "   刷新浏览器: http://localhost:4800"
 echo "   全局设置 > 通知 > 连接方式"
 echo "   打开 @chong_zu_bot 发送 /start"
-echo "   点击虫族显示的链接"
+echo "   点击江湖显示的链接"
 echo "   等待几秒后，应该会验证成功"
 echo ""
 
@@ -113,7 +113,7 @@ echo ""
 echo "如果Telegram一直有问题，可以:"
 echo "1. 关闭Telegram通知"
 echo "2. 启用邮件通知"
-echo "3. 等待云端服务恢复"
+echo "3. 等待本地服务恢复"
 echo ""
 
 echo ""

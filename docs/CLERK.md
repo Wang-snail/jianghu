@@ -1,87 +1,60 @@
-# Clerk Guide
+# 天机阁对话指南
 
-The Clerk is the keeper-facing global assistant in Quoroom.
+天机阁是用户和江湖直接对话的位置。它不要求用户理解内部任务树、模型调用或代理数量，而是把用户目标转成可执行的委托。
 
-Unlike room-scoped escalations and inbox messages, Clerk has a system-wide view and can help manage multiple rooms from one place.
+## 能做什么
 
-## What Clerk Can Do
+- 回答当前江湖、帮派、弟子、预算和风险状态。
+- 通过交互对话澄清需求，并生成需求文档。
+- 在用户确认后成立临时帮派。
+- 启动、暂停、介绍或查看帮派。
+- 创建任务、分派弟子、传递信息并汇总结果。
+- 在异常时升级到议事堂或请求锦衣卫复核。
 
-- Answer questions about active rooms, goals, workers, and recent activity
-- Create, update, pause, restart, and delete rooms
-- Start/stop queen loops
-- Create tasks and reminders
-- Send keeper messages to rooms and inter-room messages
-- Emit live commentary while agents run
+实现入口：`src/shared/clerk-tools.ts` 和 `src/server/routes/clerk.ts`。
 
-Clerk actions are implemented as tool calls in `src/shared/clerk-tools.ts`.
+## 模型路径
 
-## Setup Paths
+天机阁默认复用本机已经配置好的 AI 环境。优先级由运行环境决定，常见路径包括：
 
-In the dashboard, open the **Clerk** tab and click **Setup**.
+- `mimo:MiMo-V2.5-Pro`
+- `mimo:MiMo-V2.5`
+- `mimo:MiMo-V2-Pro`
+- `claude`
+- `codex`
+- `openai:<model>`
+- `anthropic:<model>`
+- `gemini:<model>`
 
-Available model paths:
+不要配置不受支持的 `mimo-v2-flash`。
 
-- `claude` (Claude subscription path)
-- `codex` (Codex/ChatGPT subscription path)
-- `openai:gpt-4o-mini` (OpenAI API path)
-- `anthropic:claude-3-5-sonnet-latest` (Anthropic API path)
-- `gemini:gemini-2.5-flash` (Gemini API path)
+## 需求澄清
 
-For API paths, Clerk Setup validates keys before storing them.
+发布江湖贴时，先由需求澄清代理和用户对话，补齐以下信息：
 
-## API Key Resolution Order
+- 目标是什么。
+- 成功标准是什么。
+- 必须使用或不能使用的资料。
+- 时间、预算和质量优先级。
+- 风险边界。
+- 最终交付格式。
 
-When Clerk uses an API model, keys are resolved in this order:
+用户确认需求文档后，天机阁再进入任务拆解和帮派成立流程。
 
-1. Room credential (`openai_api_key` / `anthropic_api_key` / `gemini_api_key`) from any room
-2. Clerk-saved key (`clerk_openai_api_key` / `clerk_anthropic_api_key` / `clerk_gemini_api_key`)
-3. Environment variable (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`)
+## 本地 API
 
-Implementation: `resolveClerkApiKey()` in `src/server/routes/clerk.ts`.
+所有路由都运行在本地服务内：
 
-## Live Commentary Behavior
+- `GET /api/clerk/messages`：读取天机阁对话。
+- `POST /api/clerk/chat`：发送用户消息。
+- `POST /api/clerk/reset`：清空当前会话。
+- `GET /api/clerk/status`：查看模型和配置状态。
+- `POST /api/clerk/api-key`：保存本地模型 API 配置。
+- `PUT /api/clerk/settings`：更新模型和对话设置。
 
-The commentary engine listens to room cycle events and emits updates to WebSocket channel `clerk` with event type `clerk:commentary`.
+## 故障排查
 
-Current behavior:
-
-- Poll interval: every 8 seconds
-- Pauses after keeper sends a Clerk message
-- Resume threshold: 60 seconds of keeper silence
-- Can be disabled with setting `clerk_commentary_enabled=false`
-
-Implementation: `src/server/clerk-commentary.ts`.
-
-## Keeper Alert Digest Cadence
-
-Clerk external alerts (email/Telegram) for pending keeper requests are now batched by default.
-
-- Default digest cadence: once every 6 hours
-- Urgent backlog cadence: at most once per hour for large bursts
-- New items are queued and included in the next digest window
-
-Optional settings (minutes):
-
-- `clerk_notify_min_interval_minutes` (default 360)
-- `clerk_notify_urgent_min_interval_minutes` (default 60)
-
-Set either value to `0` to disable that specific cooldown.
-
-## Clerk HTTP API
-
-All routes are under the local API server:
-
-- `GET /api/clerk/messages` — list Clerk conversation + commentary messages
-- `POST /api/clerk/chat` — send keeper message to Clerk
-- `POST /api/clerk/reset` — clear Clerk session + messages
-- `GET /api/clerk/status` — model, configured state, commentary toggle, API auth status
-- `POST /api/clerk/api-key` — validate + save Clerk API key (`openai_api`, `anthropic_api`, or `gemini_api`)
-- `PUT /api/clerk/settings` — update `model` and/or `commentaryEnabled`
-
-Route implementation: `src/server/routes/clerk.ts`.
-
-## Troubleshooting
-
-- Clerk says key missing: add key in Clerk Setup, set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`, or add room credential in Room Settings (Clerk can reuse it)
-- Commentary not appearing: confirm rooms are active and generating cycle events, check `clerk_commentary_enabled` is not `false`, and wait at least 60 seconds after your last Clerk message
-- Clerk not responding: confirm a model is selected in Clerk Setup and check provider availability in Settings/server logs
+- 天机阁无回复：检查模型设置和环境变量。
+- 工具调用无效：检查本地服务是否在 `http://127.0.0.1:4700/` 运行。
+- 委托无法启动：确认需求文档已经由用户确认。
+- 帮派没有推进：查看帮派状态、钱庄预算和锦衣卫预警。

@@ -8,8 +8,8 @@ export function registerSettingsTools(server: McpServer): void {
     'company_get_setting',
     {
       title: 'Get Setting',
-      description: 'Get a 公司本地 setting value by key. '
-        + 'Available settings: large_window_enabled (true/false) — use a larger popover window in the 公司本地 desktop app. '
+      description: 'Get a 江湖 setting value by key. '
+        + 'Available settings: large_window_enabled (true/false) — use a larger popover window in the 江湖 desktop app. '
         + 'max_concurrent_tasks (integer, 1-10, default: 3) — how many tasks the queen can work on at once. '
         + 'keeper_referral_code (string) — keeper-level invite/referral code used for network invites.',
       inputSchema: {
@@ -34,8 +34,8 @@ export function registerSettingsTools(server: McpServer): void {
     'company_set_setting',
     {
       title: 'Set Setting',
-      description: 'Set a 公司本地 setting. '
-        + 'Available settings: large_window_enabled (true/false) — use a larger popover window in the 公司本地 desktop app. '
+      description: 'Set a 江湖 setting. '
+        + 'Available settings: large_window_enabled (true/false) — use a larger popover window in the 江湖 desktop app. '
         + 'max_concurrent_tasks (integer, 1-10, default: 3) — how many tasks the queen can work on at once. '
         + 'keeper_referral_code (string) — keeper-level invite/referral code used for network invites. '
         + 'RESPONSE STYLE: Confirm briefly in 1 sentence. No notes, tips, or implementation details.',

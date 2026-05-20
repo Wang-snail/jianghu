@@ -203,7 +203,7 @@ Write-CrLfAsciiFile $wrapperPath @(
   ":fallback",
   "where node >NUL 2>NUL",
   "if errorlevel 1 (",
-  "  echo 公司本地 failed to start: bundled runtime exited with code %STATUS%, and no system node was found. 1>&2",
+  "  echo 江湖 failed to start: bundled runtime exited with code %STATUS%, and no system node was found. 1>&2",
   "  exit /b %STATUS%",
   ")",
   "",

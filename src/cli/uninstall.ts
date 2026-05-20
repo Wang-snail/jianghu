@@ -7,17 +7,17 @@ import { createInterface } from 'readline'
 const IS_WIN = process.platform === 'win32'
 
 const UNIX_PATHS = {
-  lib: '/usr/local/lib/company',
-  bin: '/usr/local/bin/company',
-  data: join(homedir(), '.company'),
-  logs: join(homedir(), 'Library', 'Logs', '公司本地'),
+  lib: '/usr/local/lib/zuzu',
+  bin: '/usr/local/bin/zuzu',
+  data: join(homedir(), '.jianghu'),
+  logs: join(homedir(), 'Library', 'Logs', '江湖'),
 }
-const PKG_ID = 'ai.company.room'
+const PKG_ID = 'ai.jianghu.room'
 
 function getWindowsInstallDir(): string | null {
   try {
     const out = execSync(
-      'reg query "HKLM\\Software\\公司本地" /v InstallDir',
+      'reg query "HKLM\\Software\\江湖" /v InstallDir',
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     )
     const match = out.match(/InstallDir\s+REG_SZ\s+(.+)/i)
@@ -28,22 +28,22 @@ function getWindowsInstallDir(): string | null {
 }
 
 function stopServerWindows(): void {
-  // Kill company-related node processes via taskkill
+  // Kill Jianghu-related node processes via taskkill
   try {
-    execSync('taskkill /F /IM node.exe /FI "WINDOWTITLE eq *company*"', { stdio: 'ignore' })
+    execSync('taskkill /F /IM node.exe /FI "WINDOWTITLE eq *jianghu*"', { stdio: 'ignore' })
   } catch { /* no matching processes */ }
 
-  // Kill any process listening on the default company port (3700)
+  // Kill any process listening on the default Jianghu port (4700)
   try {
     execSync(
-      'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3700 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"',
+      'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 4700 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"',
       { stdio: 'ignore' }
     )
   } catch { /* no listeners */ }
 }
 
 function uninstallWindows(): void {
-  const dataDir = join(homedir(), '.company')
+  const dataDir = join(homedir(), '.jianghu')
 
   // Stop server
   stopServerWindows()
@@ -67,21 +67,21 @@ function uninstallWindows(): void {
 
   // Clean registry keys
   try {
-    execSync('reg delete "HKLM\\Software\\公司本地" /f', { stdio: 'ignore' })
-    console.log('Removed registry key: HKLM\\Software\\公司本地')
+    execSync('reg delete "HKLM\\Software\\江湖" /f', { stdio: 'ignore' })
+    console.log('Removed registry key: HKLM\\Software\\江湖')
   } catch { /* key may not exist */ }
   try {
-    execSync('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\公司本地" /f', { stdio: 'ignore' })
+    execSync('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\江湖" /f', { stdio: 'ignore' })
     console.log('Removed uninstall registry entry.')
   } catch { /* key may not exist */ }
 
-  console.log('\n公司本地 has been uninstalled.')
+  console.log('\n江湖 has been uninstalled.')
   console.log('Note: You can also use "Add or Remove Programs" in Windows Settings.')
 }
 
 function uninstallUnix(): void {
   // Stop server
-  try { execSync('pkill -f "company serve"', { stdio: 'ignore' }) } catch {}
+  try { execSync('pkill -f "zuzu serve"', { stdio: 'ignore' }) } catch {}
 
   // Remove data & logs (no sudo needed)
   for (const dir of [UNIX_PATHS.data, UNIX_PATHS.logs]) {
@@ -94,12 +94,12 @@ function uninstallUnix(): void {
   // Remove binary and lib (needs sudo)
   const needsSudo = existsSync(UNIX_PATHS.lib) || existsSync(UNIX_PATHS.bin)
   if (needsSudo) {
-    console.log('\nRemoving /usr/local/lib/company and /usr/local/bin/company (requires sudo)...')
+    console.log('\nRemoving /usr/local/lib/zuzu and /usr/local/bin/zuzu (requires sudo)...')
     try {
       execSync(`sudo rm -rf ${UNIX_PATHS.lib} ${UNIX_PATHS.bin}`, { stdio: 'inherit' })
       console.log('Removed binaries.')
     } catch {
-      console.error('Failed to remove binaries. Run manually:\n  sudo rm -rf /usr/local/lib/company /usr/local/bin/company')
+      console.error('Failed to remove binaries. Run manually:\n  sudo rm -rf /usr/local/lib/zuzu /usr/local/bin/zuzu')
     }
   }
 
@@ -109,13 +109,13 @@ function uninstallUnix(): void {
     console.log('Removed package receipt.')
   } catch {}
 
-  console.log('\n公司本地 has been uninstalled.')
+  console.log('\n江湖 has been uninstalled.')
 }
 
 export function runUninstall(): void {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
 
-  rl.question('This will remove 公司本地 and all its data. Continue? [y/N] ', (answer) => {
+  rl.question('This will remove 江湖 and all its data. Continue? [y/N] ', (answer) => {
     rl.close()
     if (answer.trim().toLowerCase() !== 'y') {
       console.log('Cancelled.')

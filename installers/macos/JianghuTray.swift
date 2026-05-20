@@ -11,15 +11,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var iconFilled = false
 
     override init() {
-        let envPort = ProcessInfo.processInfo.environment["QUOROOM_PORT"]
-        self.port = Int(envPort ?? "") ?? 3700
+        let envPort = ProcessInfo.processInfo.environment["JIANGHU_PORT"] ?? ProcessInfo.processInfo.environment["COMPANY_PORT"]
+        self.port = Int(envPort ?? "") ?? 4700
         self.url = "http://localhost:\(port)"
 
-        let systemBin = "/usr/local/lib/quoroom/bin/quoroom"
-        let homeBin = "\(NSHomeDirectory())/usr/local/lib/quoroom/bin/quoroom"
+        let systemBin = "/usr/local/lib/zuzu/bin/zuzu"
+        let homeBin = "\(NSHomeDirectory())/usr/local/lib/zuzu/bin/zuzu"
         self.binPath = FileManager.default.isExecutableFile(atPath: systemBin) ? systemBin : homeBin
 
-        let logDir = "\(NSHomeDirectory())/Library/Logs/Quoroom"
+        let logDir = "\(NSHomeDirectory())/Library/Logs/Jianghu"
         try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
         self.logFile = "\(logDir)/server.log"
 
@@ -28,7 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Re-launch guard: if another instance is already running, just open dashboard and exit.
-        let myBundleId = Bundle.main.bundleIdentifier ?? "ai.quoroom.server-launcher"
+            let myBundleId = Bundle.main.bundleIdentifier ?? "ai.jianghu.server-launcher"
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: myBundleId)
         if running.count > 1 {
             NSWorkspace.shared.open(URL(string: url)!)
@@ -41,20 +41,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem.button {
             if #available(macOS 11.0, *) {
                 button.image = NSImage(systemSymbolName: "hexagon",
-                                       accessibilityDescription: "Quoroom")
+                                       accessibilityDescription: "江湖")
             } else {
-                button.title = "Q"
+                button.title = "江"
             }
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Dashboard",
+        menu.addItem(NSMenuItem(title: "打开江湖",
                                 action: #selector(openDashboard), keyEquivalent: "o"))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Restart Server",
+        menu.addItem(NSMenuItem(title: "重启服务",
                                 action: #selector(restartServer), keyEquivalent: "r"))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit Quoroom",
+        menu.addItem(NSMenuItem(title: "退出江湖",
                                 action: #selector(quitApp), keyEquivalent: "q"))
         statusItem.menu = menu
 
@@ -75,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if #available(macOS 11.0, *) {
                 let name = self.iconFilled ? "hexagon.fill" : "hexagon"
                 button.image = NSImage(systemSymbolName: name,
-                                       accessibilityDescription: "Quoroom")
+                                       accessibilityDescription: "江湖")
             }
         }
     }
@@ -87,7 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem?.button {
             if #available(macOS 11.0, *) {
                 button.image = NSImage(systemSymbolName: "hexagon",
-                                       accessibilityDescription: "Quoroom")
+                                       accessibilityDescription: "江湖")
             }
         }
     }
@@ -143,7 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func startServer() {
         var env = ProcessInfo.processInfo.environment
-        env["QUOROOM_NO_AUTO_OPEN"] = "1"
+        env["COMPANY_NO_AUTO_OPEN"] = "1"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binPath)
@@ -161,7 +161,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try process.run()
         } catch {
-            NSLog("Quoroom: failed to start server: \(error)")
+            NSLog("Jianghu: failed to start local server: \(error)")
         }
     }
 
@@ -260,11 +260,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Thread.sleep(forTimeInterval: 0.5)
         }
 
-        // Complementary sweep: catch any orphaned quoroom processes not in the port tree
+        // Complementary sweep: catch any orphaned local server processes not in the port tree
         // (e.g. agent subprocesses that detached via setsid before the server was killed).
         let pkill = Process()
         pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        pkill.arguments = ["-f", "quoroom serve"]
+        pkill.arguments = ["-f", "zuzu serve"]
         pkill.standardOutput = FileHandle.nullDevice
         pkill.standardError = FileHandle.nullDevice
         try? pkill.run()

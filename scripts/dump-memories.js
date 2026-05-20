@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dump memories (entities + observations) from one 公司本地 DB to another.
+ * Dump memories (entities + observations) from one 江湖 DB to another.
  *
  * Usage:
  *   node scripts/dump-memories.js <source-db> [target-db] [--room <id>]

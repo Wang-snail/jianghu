@@ -39,7 +39,7 @@ const ADVANCED_TABS = new Set<Tab>(
 
 const ALL_TAB_IDS: Tab[] = ['tianji', 'jinyiwei', 'swarm', 'inn', 'status', 'goals', 'votes', 'messages', 'workers', 'tasks', 'skills', 'credentials', 'transactions', 'stations', 'room-settings', 'memory', 'settings', 'help']
 
-const DEFAULT_PORT = '3700'
+const DEFAULT_PORT = '4700'
 const isRemoteOrigin = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
 const shouldProbeLocalServer = APP_MODE === 'local' && isRemoteOrigin && !isLanHost()
 

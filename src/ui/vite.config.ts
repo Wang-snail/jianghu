@@ -8,7 +8,7 @@ const buildId = process.env.SOURCE_VERSION
   || process.env.HEROKU_SLUG_COMMIT
   || String(Date.now())
 
-const apiPort = process.env.VITE_API_PORT || '3700'
+const apiPort = process.env.VITE_API_PORT || '4700'
 
 export default defineConfig({
   root: resolve(__dirname),

@@ -47,7 +47,7 @@ try {
   // Ignore missing .env or unsupported Node versions.
 }
 
-const DEFAULT_PORT = 3700
+const DEFAULT_PORT = 4700
 const DEFAULT_BIND_HOST_LOCAL = '127.0.0.1'
 const DEFAULT_BIND_HOST_CLOUD = '0.0.0.0'
 
@@ -771,7 +771,7 @@ export function createApiServer(options: ServerOptions = {}): {
 }
 
 /**
- * Patch a single MCP config file with the 公司本地 server entry.
+ * Patch a single MCP config file with the 江湖 server entry.
  * Only patches if the file already exists — never creates it for users who don't have the client.
  * Returns true if the file was written.
  */
@@ -807,16 +807,16 @@ function patchCodexConfig(configPath: string, nodePath: string, mcpServerPath: s
     // to avoid issues with TOML array syntax using '[' in values)
     const lines = raw.split('\n')
     const filtered: string[] = []
-    let in公司本地Section = false
+    let in江湖Section = false
     for (const line of lines) {
       if (/^\[mcp_servers\.company[\].]/.test(line)) {
-        in公司本地Section = true
+        in江湖Section = true
         continue
       }
-      if (in公司本地Section && /^\[/.test(line)) {
-        in公司本地Section = false
+      if (in江湖Section && /^\[/.test(line)) {
+        in江湖Section = false
       }
-      if (!in公司本地Section) {
+      if (!in江湖Section) {
         filtered.push(line)
       }
     }
@@ -864,7 +864,7 @@ function patchClaudeCodePermissions(home: string): boolean {
 }
 
 /**
- * Register 公司本地 MCP server in all known AI client configs automatically.
+ * Register 江湖 MCP server in all known AI client configs automatically.
  * Runs silently on server startup so non-technical users get MCP tools without manual setup.
  * Supported: Claude Code, Claude Desktop, Cursor, Windsurf, Codex.
  */

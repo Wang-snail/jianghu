@@ -49,7 +49,7 @@ export function registerSchedulerTools(server: McpServer): void {
           'IMPORTANT: This prompt will be executed by a SEPARATE Claude instance via `claude -p "prompt"` with NO access to the current conversation. '
           + 'The prompt MUST be completely self-contained — include ALL context, requirements, file paths, preferences, and output format. '
           + 'Do NOT reference "the file I mentioned" or "as discussed" — the executing Claude has no memory of this conversation. '
-          + 'Good: "Read ~/Documents/notes.md and create a 3-bullet summary, save to ~/公司本地/results/summary.md" '
+          + 'Good: "Read ~/Documents/notes.md and create a 3-bullet summary, save to ~/江湖/results/summary.md" '
           + 'Bad: "Summarize that file" (which file? save where?)'
         ),
         cronExpression: z.string().max(100).optional().describe(

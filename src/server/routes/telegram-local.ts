@@ -1,6 +1,6 @@
 /**
  * 完全本地化的Telegram验证系统
- * 不依赖任何江湖云端服务
+ * 不依赖任何江湖本地服务
  * 使用验证码方式，类似OpenAI
  */
 
@@ -394,22 +394,22 @@ async function handleVerifiedUser(
 ): Promise<void> {
   // 处理命令
   if (text === '/start') {
-    await sendTelegramMessage(chatId, `欢迎使用江湖！\n\n我是天机阁助手。\n\n当前功能:\n/start - 显示此帮助\n/status - 查看江湖状态\n/rooms - 列出所有势力\n\n您可以直接发送消息，我会通过本地接口处理事情。`)
+    await sendTelegramMessage(chatId, `欢迎使用江湖！\n\n我是天机阁助手。\n\n当前功能:\n/start - 显示此帮助\n/status - 查看江湖状态\n/rooms - 列出所有帮派\n\n您可以直接发送消息，我会通过本地接口处理事情。`)
     return
   }
 
   if (text === '/help') {
-    await sendTelegramMessage(chatId, `江湖天机阁助手\n\n命令列表:\n/start - 开始使用\n/status - 查看江湖状态\n/rooms - 列出势力\n\n直接发送消息即可与我交流，我会通过本地接口处理事情。`)
+    await sendTelegramMessage(chatId, `江湖天机阁助手\n\n命令列表:\n/start - 开始使用\n/status - 查看江湖状态\n/rooms - 列出帮派\n\n直接发送消息即可与我交流，我会通过本地接口处理事情。`)
     return
   }
 
   if (text === '/status') {
     const rooms = queries.listRooms(db)
     if (rooms.length === 0) {
-      await sendTelegramMessage(chatId, `公司状态\n\n暂无公司。\n\n请在界面中创建公司。`)
+      await sendTelegramMessage(chatId, `江湖状态\n\n暂无帮派。\n\n请先在天机阁发布委托。`)
     } else {
       const roomList = rooms.map((r: any) => `• ${r.name} (${r.status})`).join('\n')
-      await sendTelegramMessage(chatId, `公司状态\n\n共 ${rooms.length} 个公司:\n${roomList}`)
+      await sendTelegramMessage(chatId, `江湖状态\n\n共 ${rooms.length} 个帮派:\n${roomList}`)
     }
     return
   }
@@ -417,7 +417,7 @@ async function handleVerifiedUser(
   if (text === '/rooms') {
     const rooms = queries.listRooms(db)
     if (rooms.length === 0) {
-      await sendTelegramMessage(chatId, `公司列表\n\n暂无公司。`)
+      await sendTelegramMessage(chatId, `帮派列表\n\n暂无帮派。`)
     } else {
       let message = `🏠 房间列表\n\n`
       rooms.forEach((r: any, index: number) => {
@@ -429,7 +429,7 @@ async function handleVerifiedUser(
   }
 
   // 其他消息 - 简单回复
-  await sendTelegramMessage(chatId, `📨 收到您的消息\n\n内容: ${text}\n\nClerk助手正在学习中...\n\n(完整功能开发中)`)
+  await sendTelegramMessage(chatId, `收到您的消息\n\n内容: ${text}\n\n天机阁会通过本地接口处理，并在有结果后回传。`)
 }
 
 // ==================== 路由定义 ====================

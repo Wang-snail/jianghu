@@ -5,13 +5,13 @@ Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'SilentlyContinue'
 
 $scriptDir        = Split-Path -Parent $MyInvocation.MyCommand.Path
-$cmdPath          = Join-Path $scriptDir 'quoroom.cmd'
-$iconPath         = Join-Path $scriptDir '..\ui\quoroom-server.ico'
-$url              = 'http://localhost:3700'
-$mutexName        = 'Local\QuoroomServerTrayV5'
+$cmdPath          = Join-Path $scriptDir 'zuzu.cmd'
+$iconPath         = Join-Path $scriptDir '..\ui\jianghu-server.ico'
+$url              = 'http://localhost:4700'
+$mutexName        = 'Local\JianghuServerTrayV5'
 $installRoot      = Split-Path -Parent $scriptDir
 $installRootLower = $installRoot.ToLowerInvariant()
-$logDir           = Join-Path $env:USERPROFILE '.quoroom'
+$logDir           = Join-Path $env:USERPROFILE '.jianghu'
 $logPath          = Join-Path $logDir 'tray.log'
 
 function Write-Log([string]$msg) {
@@ -26,7 +26,7 @@ function Write-Log([string]$msg) {
 function Test-ServerPort {
   $client = New-Object System.Net.Sockets.TcpClient
   try {
-    $ar = $client.BeginConnect('127.0.0.1', 3700, $null, $null)
+    $ar = $client.BeginConnect('127.0.0.1', 4700, $null, $null)
     $ok = $ar.AsyncWaitHandle.WaitOne(100)
     if ($ok) { try { $client.EndConnect($ar) } catch { $ok = $false } }
     return [bool]$ok
@@ -59,21 +59,21 @@ Write-Log "Tray started. OpenWhenReady=$([bool]$OpenWhenReady)"
 
 # Process helpers
 
-function Is-QuoroomProcess([object]$proc) {
+function Is-JianghuProcess([object]$proc) {
   $exe = if ($proc.ExecutablePath) { $proc.ExecutablePath.ToLowerInvariant() } else { '' }
   $cmd = if ($proc.CommandLine)    { $proc.CommandLine.ToLowerInvariant()    } else { '' }
   if ($exe.Contains($installRootLower) -or $cmd.Contains($installRootLower)) { return $true }
-  if ($cmd.Contains('quoroom-tray.ps1') -or $cmd.Contains('quoroom-launch.vbs')) { return $true }
-  if ($cmd.Contains('\quoroom\bin\quoroom.cmd')) { return $true }
-  # Broad sweep: any node.exe with 'quoroom' in its command line (catches orphaned children)
-  if ($proc.Name -eq 'node.exe' -and $cmd.Contains('quoroom')) { return $true }
+  if ($cmd.Contains('jianghu-tray.ps1') -or $cmd.Contains('jianghu-launch.vbs')) { return $true }
+  if ($cmd.Contains('\jianghu\bin\zuzu.cmd')) { return $true }
+  # Broad sweep: any node.exe with 'jianghu' in its command line (catches orphaned children)
+  if ($proc.Name -eq 'node.exe' -and $cmd.Contains('jianghu')) { return $true }
   return $false
 }
 
 function Find-ServerProcs {
   $filter = "Name='node.exe' OR Name='cmd.exe' OR Name='powershell.exe' OR Name='pwsh.exe' OR Name='wscript.exe' OR Name='cscript.exe'"
   @(Get-CimInstance Win32_Process -Filter $filter -EA SilentlyContinue |
-    Where-Object { $_.ProcessId -ne $PID -and (Is-QuoroomProcess $_) })
+    Where-Object { $_.ProcessId -ne $PID -and (Is-JianghuProcess $_) })
 }
 
 function Test-PidAlive([int]$pid) {
@@ -111,7 +111,7 @@ function Stop-PidTree([int]$pid) {
 
 function Show-StopFailure([string]$message) {
   try {
-    $notify.BalloonTipTitle = 'Quoroom'
+    $notify.BalloonTipTitle = '江湖'
     $notify.BalloonTipText = $message
     $notify.ShowBalloonTip(5000)
   } catch {}
@@ -123,7 +123,7 @@ function Stop-Server {
   for ($attempt = 0; $attempt -lt 3; $attempt++) {
     # Kill by port ownership first (catches zombie/elevated processes)
     $portOwners = @(
-      Get-NetTCPConnection -LocalPort 3700 -EA SilentlyContinue |
+      Get-NetTCPConnection -LocalPort 4700 -EA SilentlyContinue |
       Where-Object { $_.OwningProcess -gt 4 -and $_.OwningProcess -ne $PID } |
       Select-Object -ExpandProperty OwningProcess -Unique
     )
@@ -144,9 +144,9 @@ function Stop-Server {
     Start-Sleep -Milliseconds 600
   }
 
-  # Final sweep: any remaining port 3700 owners
+  # Final sweep: any remaining port 4700 owners
   $remaining = @(
-    Get-NetTCPConnection -LocalPort 3700 -EA SilentlyContinue |
+    Get-NetTCPConnection -LocalPort 4700 -EA SilentlyContinue |
     Where-Object { $_.OwningProcess -gt 4 -and $_.OwningProcess -ne $PID } |
     Select-Object -ExpandProperty OwningProcess -Unique
   )
@@ -157,13 +157,13 @@ function Stop-Server {
   }
 
   $remainingAfter = @(
-    Get-NetTCPConnection -LocalPort 3700 -EA SilentlyContinue |
+    Get-NetTCPConnection -LocalPort 4700 -EA SilentlyContinue |
     Where-Object { $_.OwningProcess -gt 4 -and $_.OwningProcess -ne $PID } |
     Select-Object -ExpandProperty OwningProcess -Unique
   )
   if ($remainingAfter.Count -gt 0) {
     $ids = (($remainingAfter | ForEach-Object { [int]$_ }) | Sort-Object -Unique) -join ','
-    Write-Log "Stop-Server failed; port 3700 still owned by PID(s): $ids"
+    Write-Log "Stop-Server failed; port 4700 still owned by PID(s): $ids"
     if ($failedPids.Count -gt 0) {
       $f = (($failedPids | Sort-Object -Unique) -join ',')
       Write-Log "Failed stop attempts for PID(s): $f"
@@ -175,14 +175,14 @@ function Stop-Server {
   return $true
 }
 
-# On startup: evict anything occupying port 3700 so our server can bind cleanly.
+# On startup: evict anything occupying port 4700 so our server can bind cleanly.
 # Best-effort - works when tray runs elevated (from installer); harmless otherwise.
-function Clear-Port3700 {
-  $portOwners = Get-NetTCPConnection -LocalPort 3700 -State Listen -EA SilentlyContinue |
+function Clear-Port4700 {
+  $portOwners = Get-NetTCPConnection -LocalPort 4700 -State Listen -EA SilentlyContinue |
     Where-Object { $_.OwningProcess -gt 4 -and $_.OwningProcess -ne $PID } |
     Select-Object -ExpandProperty OwningProcess -Unique
   foreach ($portProc in $portOwners) {
-    Write-Log "Evicting port-3700 owner PID=$portProc"
+    Write-Log "Evicting port-4700 owner PID=$portProc"
     Stop-PidTree $portProc
   }
   if ($portOwners.Count -gt 0) { Start-Sleep -Milliseconds 600 }
@@ -205,8 +205,8 @@ function Try-StartServer {
   if (($now - $script:lastStartAt).TotalSeconds -lt 8) { return }
   $script:lastStartAt = $now
   if (-not (Test-Path $cmdPath)) { Write-Log "ERROR: $cmdPath not found"; return }
-  Write-Log "Launching: $cmdPath serve --port 3700"
-  Start-Process -FilePath $cmdPath -ArgumentList 'serve', '--port', '3700' -WindowStyle Hidden
+  Write-Log "Launching: $cmdPath serve --port 4700"
+  Start-Process -FilePath $cmdPath -ArgumentList 'serve', '--port', '4700' -WindowStyle Hidden
   if ($script:startedAt -eq [DateTime]::MinValue) { $script:startedAt = $now }
 }
 
@@ -227,16 +227,16 @@ function Check-Process {
 
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Icon    = if (Test-Path $iconPath) { New-Object System.Drawing.Icon($iconPath) } else { [System.Drawing.SystemIcons]::Application }
-$notify.Text    = 'Quoroom Server (starting)'
+$notify.Text    = '江湖（启动中）'
 $notify.Visible = $true
 
 $menu        = New-Object System.Windows.Forms.ContextMenuStrip
 $statusItem  = $menu.Items.Add('Status: starting')
 $statusItem.Enabled = $false
 $menu.Items.Add('-') | Out-Null
-$openItem    = $menu.Items.Add('Open Quoroom')
-$restartItem = $menu.Items.Add('Restart Server')
-$quitItem    = $menu.Items.Add('Quit Quoroom')
+$openItem    = $menu.Items.Add('打开江湖')
+$restartItem = $menu.Items.Add('重启服务')
+$quitItem    = $menu.Items.Add('退出江湖')
 $notify.ContextMenuStrip = $menu
 
 function Refresh-Ui {
@@ -246,8 +246,8 @@ function Refresh-Ui {
     'restarting' { 'restarting' }
     default      { 'starting'   }
   }
-  $notify.Text         = if ($script:state -eq 'online') { 'Quoroom Server' } else { "Quoroom Server ($label)" }
-  $statusItem.Text     = "Status: $label"
+  $notify.Text         = if ($script:state -eq 'online') { '江湖' } else { "江湖 ($label)" }
+  $statusItem.Text     = "状态: $label"
   $openItem.Enabled    = -not $script:quitting
   $restartItem.Enabled = -not $script:quitting
 }
@@ -272,7 +272,7 @@ $restartItem.Add_Click({
   if (-not (Stop-Server)) {
     $script:state = 'offline'
     $script:pendingOpen = $false
-    Show-StopFailure 'Could not stop existing server process. Try running Quoroom as Administrator.'
+    Show-StopFailure '无法停止现有服务，请以管理员身份重试。'
     Refresh-Ui
     return
   }
@@ -289,7 +289,7 @@ $quitItem.Add_Click({
   Refresh-Ui
   if (-not (Stop-Server)) {
     $script:quitting = $false
-    Show-StopFailure 'Server is still running on port 3700. Run Quoroom as Administrator, then stop again.'
+    Show-StopFailure '服务仍在 4700 端口运行，请以管理员身份重试。'
     Refresh-Ui
     return
   }
@@ -351,7 +351,7 @@ $timer.Add_Tick({
 })
 
 $timer.Start()
-Clear-Port3700
+Clear-Port4700
 Try-StartServer
 Refresh-Ui
 [System.Windows.Forms.Application]::Run()

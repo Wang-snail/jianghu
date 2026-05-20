@@ -127,16 +127,16 @@ function patchCodexConfig(configPath: string, nodePath: string, mcpServerPath: s
     const raw: string = fRead(configPath, 'utf-8')
     const lines = raw.split('\n')
     const filtered: string[] = []
-    let in公司本地Section = false
+    let in江湖Section = false
     for (const line of lines) {
       if (/^\[mcp_servers\.company[\].]/.test(line)) {
-        in公司本地Section = true
+        in江湖Section = true
         continue
       }
-      if (in公司本地Section && /^\[/.test(line)) {
-        in公司本地Section = false
+      if (in江湖Section && /^\[/.test(line)) {
+        in江湖Section = false
       }
-      if (!in公司本地Section) {
+      if (!in江湖Section) {
         filtered.push(line)
       }
     }

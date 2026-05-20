@@ -10,7 +10,7 @@ export function registerWatcherTools(server: McpServer): void {
     {
       title: 'Watch Folder',
       description:
-        'Watch a file or folder for changes. When a new file is added or a file is modified, 公司本地 will execute the action prompt using Claude Code CLI. The watcher runs in the 公司本地 background process. '
+        'Watch a file or folder for changes. When a new file is added or a file is modified, 江湖 will execute the action prompt using Claude Code CLI. The watcher runs in the 江湖 background process. '
         + 'RESPONSE STYLE: Confirm briefly in 1 sentence. No notes, tips, or implementation details.',
       inputSchema: {
         path: z.string().min(1).describe('Absolute path to the file or folder to watch'),

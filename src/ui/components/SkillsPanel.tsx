@@ -124,7 +124,7 @@ function skillCategory(skill: Skill): string {
   if (/security|auth|compliance|risk|validation|vibesec|safety/.test(text)) return '安全合规'
   if (/context|prompt|memory|knowledge|rag/.test(text)) return '上下文工程'
   if (/automation|workflow|n8n|mcp|agent|voltagent|orchestrat|subagent/.test(text)) return '智能体自动化'
-  if (/cloudflare|netlify|vercel|supabase|stripe|terraform|deploy|serverless|workers|edge|cloud|infrastructure/.test(text)) return '云服务运维'
+  if (/cloudflare|netlify|vercel|supabase|stripe|terraform|deploy|serverless|workers|edge|cloud|infrastructure/.test(text)) return '部署运维'
   if (/react|angular|vue|next|frontend|mobile|ios|android|swiftui|expo|node|python|javascript|typescript|code|testing|debug|github/.test(text)) return '开发测试'
   return '专业领域'
 }

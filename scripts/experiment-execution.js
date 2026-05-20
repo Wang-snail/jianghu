@@ -26,7 +26,7 @@ const CYCLE_GAP_MS = 12000  // 12s gap — browser ops are slow
 
 const GOAL = `You are an execution team. Your mission is to ACTUALLY DO things on the internet using the company_browser tool, not just research and plan.
 
-Context about 公司本地:
+Context about 江湖:
 - AI agent platform where users create "rooms" with autonomous AI agents
 - Open source: github.com/company-ai/room
 - Landing page: company.ai
@@ -47,7 +47,7 @@ TASKS TO EXECUTE:
 
 3. SEND AN OUTREACH EMAIL
    - Log into the email account you created (using stored sessionId)
-   - Compose an email about 公司本地 to one of the found contacts
+   - Compose an email about 江湖 to one of the found contacts
    - Actually send it via the webmail interface
 
 4. CREATE ONLINE PRESENCE
@@ -84,12 +84,12 @@ const WORKER_ROLES = [
   {
     name: 'lead-finder',
     role: 'Lead Research & Contact Scraping',
-    focus: 'Find real people and emails to contact about 公司本地. Use company_web_search to find AI startups, dev tool companies, indie hackers. Use company_browser to visit their sites and extract contact emails from about pages, team pages, footer. Store everything in memory.'
+    focus: 'Find real people and emails to contact about 江湖. Use company_web_search to find AI startups, dev tool companies, indie hackers. Use company_browser to visit their sites and extract contact emails from about pages, team pages, footer. Store everything in memory.'
   },
   {
     name: 'outreach',
     role: 'Outreach & Communication',
-    focus: 'Once the account-creator has set up an email, use it to send outreach. Log into the email using company_browser with the stored sessionId. Compose and send personalized emails about 公司本地 to leads found by lead-finder. Also post on forums, comment on relevant HN/Reddit threads.'
+    focus: 'Once the account-creator has set up an email, use it to send outreach. Log into the email using company_browser with the stored sessionId. Compose and send personalized emails about 江湖 to leads found by lead-finder. Also post on forums, comment on relevant HN/Reddit threads.'
   },
 ]
 

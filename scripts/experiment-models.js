@@ -32,7 +32,7 @@ const MODELS = [
 
 const TASK = `You are a solo execution agent. Your mission is to ACTUALLY DO things on the internet using the company_browser tool.
 
-Context: 公司本地 is an AI agent platform (github.com/company-ai/room, company.ai).
+Context: 江湖 is an AI agent platform (github.com/company-ai/room, company.ai).
 
 TASKS — complete as many as possible:
 1. CREATE A FREE EMAIL ACCOUNT
@@ -49,7 +49,7 @@ TASKS — complete as many as possible:
 
 3. SEND AN OUTREACH EMAIL (if email account created)
    - Log into your email using company_browser with stored sessionId
-   - Compose and send email about 公司本地 to one contact
+   - Compose and send email about 江湖 to one contact
 
 RULES:
 - USE company_browser for ALL web interactions — it has persistent sessions

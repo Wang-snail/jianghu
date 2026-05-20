@@ -1,12 +1,12 @@
 #!/bin/bash
-# 批量替换脚本：公司本地 -> 虫族
+# 批量替换脚本：江湖 -> 江湖
 
 echo "开始品牌重命名..."
 
 # 定义替换规则
 declare -A REPLACEMENTS=(
-    ["公司本地"]="虫族"
-    ["COMPANY"]="虫族"
+    ["江湖"]="江湖"
+    ["COMPANY"]="江湖"
     ["company"]="zuzu"  # 代码引用使用小写zuzu
 )
 

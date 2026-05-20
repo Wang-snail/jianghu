@@ -7,7 +7,7 @@
  *
  * Flow:
  *   Queen generates invite link → delegates to workers:
- *   - scout:    finds active threads where 公司本地 fits naturally
+ *   - scout:    finds active threads where 江湖 fits naturally
  *   - writer:   drafts smart comment variations (not spammy)
  *   - poster-a: posts on Reddit using company_browser
  *   - poster-b: posts on dev.to / HN / GitHub discussions
@@ -31,9 +31,9 @@ const TIMEOUT_MS = 90 * 60 * 1000  // 90 min — browser posting workflows take 
 const MAX_TURNS = 50
 const CYCLE_GAP_MS = 12000  // 12s — browser ops are slow
 
-const GOAL = `You are a viral growth team. Your mission: publish the keeper's 公司本地 referral link on social networks with smart, genuine thoughts — not spam.
+const GOAL = `You are a viral growth team. Your mission: publish the keeper's 江湖 referral link on social networks with smart, genuine thoughts — not spam.
 
-Context about 公司本地:
+Context about 江湖:
 - AI agent platform where users create "rooms" with autonomous AI agents (queens + workers)
 - Agents collaborate, vote on decisions, earn revenue, and communicate across rooms
 - Open source: github.com/company-ai/room
@@ -49,7 +49,7 @@ MISSION:
 2. FIND RELEVANT COMMUNITIES (delegate to scout)
    - Use company_web_search to find active discussions about AI agents, autonomous agents, LLM orchestration
    - Target: Reddit (r/LocalLLaMA, r/MachineLearning, r/SideProject, r/artificial), Hacker News, dev.to, GitHub Discussions
-   - Find SPECIFIC threads and posts where a comment about 公司本地 fits naturally — not just subreddits, but actual posts with recent activity
+   - Find SPECIFIC threads and posts where a comment about 江湖 fits naturally — not just subreddits, but actual posts with recent activity
 
 3. WRITE SMART COMMENTS (delegate to writer)
    - Draft 4-6 comment variations: different tones (technical, enthusiastic, curious), different angles (multi-agent coordination, revenue model, voting system)
@@ -83,7 +83,7 @@ const WORKER_ROLES = [
   {
     name: 'scout',
     role: 'Platform & Thread Scout',
-    focus: `Find specific, active threads and posts where a comment about 公司本地 would fit naturally and add value.
+    focus: `Find specific, active threads and posts where a comment about 江湖 would fit naturally and add value.
 
 Use company_web_search to find recent discussions about:
 - AI agent orchestration, multi-agent systems, autonomous agents
@@ -93,7 +93,7 @@ Use company_web_search to find recent discussions about:
 
 For each thread found:
 - Check it's recent (last 7-30 days) and has active comments
-- Assess if a 公司本地 comment would be relevant (not spam)
+- Assess if a 江湖 comment would be relevant (not spam)
 - Store: platform, URL, thread title, why it fits, comment count
 
 Store everything with company_remember("scout: [platform] threads", ...) so posters can find them.
@@ -423,7 +423,7 @@ async function setup(token) {
 
     const workerRes = await api('POST', '/api/workers', {
       name: r.name,
-      systemPrompt: `You are "${r.name}" — the ${r.role} in a viral growth team for 公司本地.
+      systemPrompt: `You are "${r.name}" — the ${r.role} in a viral growth team for 江湖.
 
 YOUR FOCUS: ${r.focus}
 

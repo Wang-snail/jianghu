@@ -2,7 +2,7 @@
 
 # Telegram机器人测试和配置脚本
 
-echo "=== 虫族Telegram机器人配置工具 ==="
+echo "=== 江湖Telegram机器人配置工具 ==="
 echo ""
 
 # 检查是否设置了Token
@@ -40,11 +40,11 @@ echo ""
 
 # 检查数据库中的配置
 echo "=== 数据库中的Telegram配置 ==="
-sqlite3 ~/.虫族/data.db "SELECT key, value FROM settings WHERE key LIKE '%telegram%';" 2>/dev/null
+sqlite3 ~/.jianghu/data.db "SELECT key, value FROM settings WHERE key LIKE '%telegram%';" 2>/dev/null
 echo ""
 
 # 获取用户的Telegram ID
-TELEGRAM_ID=$(sqlite3 ~/.虫族/data.db "SELECT value FROM settings WHERE key='contact_telegram_id';" 2>/dev/null)
+TELEGRAM_ID=$(sqlite3 ~/.jianghu/data.db "SELECT value FROM settings WHERE key='contact_telegram_id';" 2>/dev/null)
 
 if [ -n "$TELEGRAM_ID" ]; then
     echo "已链接的Telegram ID: $TELEGRAM_ID"
@@ -52,7 +52,7 @@ if [ -n "$TELEGRAM_ID" ]; then
     echo "📤 发送测试消息到您的Telegram..."
 
     # 发送测试消息
-    TEST_MESSAGE="🤖 虫族测试消息
+    TEST_MESSAGE="🤖 江湖测试消息
 
 您的Telegram机器人配置正常！
 Bot: @$BOT_USERNAME
@@ -74,7 +74,7 @@ Bot: @$BOT_USERNAME
     fi
 else
     echo "⚠️  未找到已链接的Telegram ID"
-    echo "请先在公司本地界面中链接Telegram"
+    echo "请先在江湖界面中链接Telegram"
 fi
 
 echo ""
@@ -82,8 +82,8 @@ echo "=== 完成配置 ==="
 echo ""
 echo "如果机器人能正常接收消息，但不会自动回复，可能是因为："
 echo ""
-echo "1. 云端服务问题 - 需要配置本地Webhook"
-echo "2. Clerk未启用 - 请检查虫族设置"
+echo "1. 本地服务问题 - 需要配置本地Webhook"
+echo "2. Clerk未启用 - 请检查江湖设置"
 echo ""
 echo "要设置本地Webhook，请使用:"
 echo "  bash scripts/setup-telegram-webhook.sh"

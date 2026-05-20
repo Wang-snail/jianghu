@@ -17,7 +17,7 @@ import {
   type GoalFile,
 } from '../shared/fs-storage'
 
-const DATA_DIR = path.join(homedir(), '.虫族')
+const DATA_DIR = path.join(homedir(), '.jianghu')
 const DB_PATH = path.join(DATA_DIR, 'data.db')
 
 // ── 迁移函数 ───────────────────────────────────────────────────────

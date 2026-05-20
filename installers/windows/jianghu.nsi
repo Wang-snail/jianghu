@@ -1,27 +1,27 @@
-; Quoroom Windows Installer (NSIS)
-; Build: makensis /DVERSION=x.x.x /DOUT_FILE=out.exe /DSTAGING_DIR=staging\quoroom quoroom.nsi
+; Jianghu Windows Installer (NSIS)
+; Build: makensis /DVERSION=x.x.x /DOUT_FILE=out.exe /DSTAGING_DIR=staging\zuzu jianghu.nsi
 
 !include "MUI2.nsh"
 
-Name "Quoroom"
+Name "江湖"
 OutFile "${OUT_FILE}"
-InstallDir "$PROGRAMFILES\Quoroom"
-InstallDirRegKey HKLM "Software\Quoroom" "InstallDir"
+InstallDir "$PROGRAMFILES\Jianghu"
+InstallDirRegKey HKLM "Software\Jianghu" "InstallDir"
 RequestExecutionLevel admin
 
 ; Version info
 VIProductVersion "${VI_VERSION}"
-VIAddVersionKey "ProductName" "Quoroom"
+VIAddVersionKey "ProductName" "江湖"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
-VIAddVersionKey "FileDescription" "Quoroom - Autonomous AI agent collective engine"
+VIAddVersionKey "FileDescription" "江湖 - 本地 AI 数字组织生态系统"
 VIAddVersionKey "LegalCopyright" "MIT License"
 
 ; Modern UI
 !define MUI_ABORTWARNING
 
 ; Welcome copy
-!define MUI_WELCOMEPAGE_TEXT "This installer adds Quoroom to your PATH.$\r$\n$\r$\nAfter install, the local server starts automatically and your browser opens http://localhost:3700.$\r$\n$\r$\nAny time later, reopen from Start Menu -> Quoroom Server -> Open Quoroom Server, or use the Quoroom Server desktop shortcut (no terminal window).$\r$\n$\r$\nYour browser controls Quoroom locally on this PC. Room data stays on your machine and is not sent to the internet by default."
+!define MUI_WELCOMEPAGE_TEXT "安装程序会添加 zuzu 命令并启动江湖本地服务。$\r$\n$\r$\n安装完成后浏览器会打开 http://localhost:4700。$\r$\n$\r$\n以后可从开始菜单 -> 江湖 -> 打开江湖 重新启动。$\r$\n$\r$\n委托、帮派、弟子、功法和钱庄流水默认保存在本机。"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -40,8 +40,8 @@ Section "Install"
   SetRegView 64
   SetOutPath "$INSTDIR"
 
-  ; Stop running Quoroom processes from previous installs to avoid locked files.
-  Call StopRunningQuoroom
+  ; Stop running Jianghu processes from previous installs to avoid locked files.
+  Call StopRunningJianghu
   Sleep 500
 
   ; Copy all files from staging
@@ -51,16 +51,16 @@ Section "Install"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Cleanup old launcher names from previous versions
-  RMDir /r "$SMPROGRAMS\Quoroom"
-  Delete "$DESKTOP\Quoroom.lnk"
+  RMDir /r "$SMPROGRAMS\Jianghu"
+  Delete "$DESKTOP\Jianghu.lnk"
 
   ; Start Menu
-  CreateDirectory "$SMPROGRAMS\Quoroom Server"
+  CreateDirectory "$SMPROGRAMS\江湖"
   Call CreateTrayScript
   Call CreateLauncherScript
-  CreateShortcut "$SMPROGRAMS\Quoroom Server\Open Quoroom Server.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\bin\quoroom-launch.vbs"' "$INSTDIR\ui\quoroom-server.ico" 0
-  CreateShortcut "$SMPROGRAMS\Quoroom Server\Uninstall.lnk" "$INSTDIR\uninstall.exe"
-  CreateShortcut "$DESKTOP\Quoroom Server.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\bin\quoroom-launch.vbs"' "$INSTDIR\ui\quoroom-server.ico" 0
+  CreateShortcut "$SMPROGRAMS\江湖\打开江湖.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\bin\jianghu-launch.vbs"' "$INSTDIR\ui\jianghu-server.ico" 0
+  CreateShortcut "$SMPROGRAMS\江湖\卸载.lnk" "$INSTDIR\uninstall.exe"
+  CreateShortcut "$DESKTOP\江湖.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\bin\jianghu-launch.vbs"' "$INSTDIR\ui\jianghu-server.ico" 0
 
   ; Add bin\ to system PATH via registry
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
@@ -77,15 +77,15 @@ Section "Install"
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 
   ; Add/Remove Programs registry
-  WriteRegStr HKLM "Software\Quoroom" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Quoroom" \
-    "DisplayName" "Quoroom"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Quoroom" \
+  WriteRegStr HKLM "Software\Jianghu" "InstallDir" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Jianghu" \
+    "DisplayName" "江湖"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Jianghu" \
     "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Quoroom" \
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Jianghu" \
     "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Quoroom" \
-    "Publisher" "Quoroom"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Jianghu" \
+    "Publisher" "江湖"
 SectionEnd
 
 Section "Uninstall"
@@ -113,41 +113,41 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 
   ; Remove Start Menu
-  RMDir /r "$SMPROGRAMS\Quoroom Server"
-  RMDir /r "$SMPROGRAMS\Quoroom"
-  Delete "$DESKTOP\Quoroom Server.lnk"
-  Delete "$DESKTOP\Quoroom.lnk"
+  RMDir /r "$SMPROGRAMS\江湖"
+  RMDir /r "$SMPROGRAMS\Jianghu"
+  Delete "$DESKTOP\江湖.lnk"
+  Delete "$DESKTOP\Jianghu.lnk"
 
   ; Remove registry
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Quoroom"
-  DeleteRegKey HKLM "Software\Quoroom"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Jianghu"
+  DeleteRegKey HKLM "Software\Jianghu"
 SectionEnd
 
 ; --- Launch server + browser ---
 
-Function LaunchQuoroom
-  ; Run launcher via Windows Script Host so quoroom.cmd stays hidden.
-  Exec '"$SYSDIR\wscript.exe" "$INSTDIR\bin\quoroom-launch.vbs"'
+Function LaunchJianghu
+  ; Run launcher via Windows Script Host so the local server stays hidden.
+  Exec '"$SYSDIR\wscript.exe" "$INSTDIR\bin\jianghu-launch.vbs"'
 FunctionEnd
 
 Function .onInit
   SetRegView 64
   StrCmp $PROGRAMFILES64 "" +2 0
-    StrCpy $INSTDIR "$PROGRAMFILES64\Quoroom"
+    StrCpy $INSTDIR "$PROGRAMFILES64\Jianghu"
 
   Push $INSTDIR
   Push "\AppData\Local\Temp\"
   Call StrContains
   Pop $0
   StrCmp $0 "" +2 0
-    StrCpy $INSTDIR "$PROGRAMFILES\Quoroom"
+    StrCpy $INSTDIR "$PROGRAMFILES\Jianghu"
 
   Push $INSTDIR
-  Push "\Temp\quoroom-"
+  Push "\Temp\jianghu-"
   Call StrContains
   Pop $0
   StrCmp $0 "" +2 0
-    StrCpy $INSTDIR "$PROGRAMFILES\Quoroom"
+    StrCpy $INSTDIR "$PROGRAMFILES\Jianghu"
 FunctionEnd
 
 Function un.onInit
@@ -156,32 +156,32 @@ FunctionEnd
 
 ; Launch automatically when the user leaves the Finish page.
 Function FinishPageLeave
-  Call LaunchQuoroom
+  Call LaunchJianghu
 FunctionEnd
 
 ; --- Helper functions ---
 
 Function CreateLauncherScript
-  FileOpen $0 "$INSTDIR\bin\quoroom-launch.vbs" w
+  FileOpen $0 "$INSTDIR\bin\jianghu-launch.vbs" w
   FileWrite $0 "Set app = CreateObject($\"Shell.Application$\")$\r$\n"
   FileWrite $0 "Set fso = CreateObject($\"Scripting.FileSystemObject$\")$\r$\n"
   FileWrite $0 "scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)$\r$\n"
-  FileWrite $0 "psPath = scriptDir & $\"\\quoroom-tray.ps1$\"$\r$\n"
+  FileWrite $0 "psPath = scriptDir & $\"\\jianghu-tray.ps1$\"$\r$\n"
   FileWrite $0 "args = $\"-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File $\" & Chr(34) & psPath & Chr(34) & $\" -OpenWhenReady$\"$\r$\n"
   FileWrite $0 "app.ShellExecute $\"powershell.exe$\", args, $\"$\", $\"open$\", 0$\r$\n"
   FileClose $0
 FunctionEnd
 
 Function CreateTrayScript
-  File "/oname=$INSTDIR\bin\quoroom-tray.ps1" "..\..\installers\windows\quoroom-tray.ps1"
+  File "/oname=$INSTDIR\bin\jianghu-tray.ps1" "..\..\installers\windows\jianghu-tray.ps1"
 FunctionEnd
 
-Function StopRunningQuoroom
+Function StopRunningJianghu
   InitPluginsDir
-  File "/oname=$PLUGINSDIR\quoroom-stop.ps1" "..\..\installers\windows\stop-quoroom.ps1"
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\quoroom-stop.ps1" -InstallDir "$INSTDIR"'
+  File "/oname=$PLUGINSDIR\jianghu-stop.ps1" "..\..\installers\windows\stop-jianghu.ps1"
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\jianghu-stop.ps1" -InstallDir "$INSTDIR"'
   Pop $0
-  Delete "$PLUGINSDIR\quoroom-stop.ps1"
+  Delete "$PLUGINSDIR\jianghu-stop.ps1"
 FunctionEnd
 
 ; StrContains - check if $1 is in $0 (push haystack, needle)

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>Quoroom</title>
-    <organization>ai.quoroom</organization>
+    <title>江湖</title>
+    <organization>ai.jianghu</organization>
     <domains enable_localSystem="true" />
     <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64" />
 
@@ -10,19 +10,19 @@
 
     <choices-outline>
         <line choice="default">
-            <line choice="ai.quoroom.cli" />
+            <line choice="ai.jianghu.cli" />
         </line>
     </choices-outline>
 
     <choice id="default" />
-    <choice id="ai.quoroom.cli"
+    <choice id="ai.jianghu.cli"
             visible="false"
-            title="Quoroom CLI"
-            description="Quoroom command-line tool and runtime">
-        <pkg-ref id="ai.quoroom.cli" />
+            title="江湖"
+            description="江湖本地运行工具">
+        <pkg-ref id="ai.jianghu.cli" />
     </choice>
 
-    <pkg-ref id="ai.quoroom.cli"
+    <pkg-ref id="ai.jianghu.cli"
              version="0"
-             onConclusion="none">quoroom-component.pkg</pkg-ref>
+             onConclusion="none">zuzu-component.pkg</pkg-ref>
 </installer-gui-script>

@@ -9,7 +9,7 @@ const HOME = os.homedir()
 const ROOT = path.resolve(__dirname, '..')
 
 const MODES = [
-  { name: 'release', dataDir: path.join(HOME, '.company'), port: 3700 },
+  { name: 'release', dataDir: path.join(HOME, '.company'), port: 4700 },
   { name: 'dev', dataDir: path.join(HOME, '.company-dev'), port: 4700 },
 ]
 
@@ -126,7 +126,7 @@ function printMode(mode) {
 }
 
 function main() {
-  console.log('公司本地 Split Doctor')
+  console.log('江湖 Split Doctor')
   console.log('--------------------')
 
   const release = printMode(MODES[0])
@@ -148,7 +148,7 @@ function main() {
 
   for (const l of release.listeners) {
     if (l.fullCommand && l.fullCommand.includes(ROOT)) {
-      issues.push('Port 3700 is served by a source/dev process from this repo.')
+      issues.push('Port 4700 is served by a source/dev process from this repo.')
       break
     }
   }
@@ -170,7 +170,7 @@ function main() {
 
   console.log('\n[RECOMMENDED]')
   console.log('dev: npm run dev:room          # isolated (~/.company-dev, :4700)')
-  console.log('release: launch installed app  # release (~/.company, :3700)')
+  console.log('release: launch installed app  # release (~/.company, :4700)')
   console.log('shared mode only if needed: npm run dev:room:shared')
 }
 

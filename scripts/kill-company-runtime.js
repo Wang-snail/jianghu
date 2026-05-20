@@ -8,7 +8,7 @@ const dryRun = process.argv.includes('--dry-run')
 const ROOM_ROOT = resolve(__dirname, '..')
 
 /**
- * Match both globally installed 公司本地 runtime processes and local room dev
+ * Match both globally installed 江湖 runtime processes and local room dev
  * runtime/watch processes that can survive crashed shells.
  */
 const COMMAND_FRAGMENTS = [

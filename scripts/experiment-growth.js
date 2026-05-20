@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Growth Experiment — 11 Claude agents brainstorming 公司本地 user growth
+ * Growth Experiment — 11 Claude agents brainstorming 江湖 user growth
  *
  * All agents use Claude CLI (subscription model). No API keys needed.
  *
@@ -24,11 +24,11 @@ const TIMEOUT_MS = 30 * 60 * 1000  // 30 min (11 CLI agents take time)
 const MAX_TURNS = 50
 const CYCLE_GAP_MS = 8000  // 8s gap — CLI agents are slower
 
-const GOAL = `You are a growth team for 公司本地 — an AI agent platform where users create "rooms" with autonomous AI agents (queens + workers) that collaborate, vote on decisions, earn revenue, and communicate across rooms.
+const GOAL = `You are a growth team for 江湖 — an AI agent platform where users create "rooms" with autonomous AI agents (queens + workers) that collaborate, vote on decisions, earn revenue, and communicate across rooms.
 
-YOUR MISSION: Find concrete, actionable ways to grow 公司本地's user base from 0 to 1000 users.
+YOUR MISSION: Find concrete, actionable ways to grow 江湖's user base from 0 to 1000 users.
 
-Context about 公司本地:
+Context about 江湖:
 - Users create rooms with AI agents that autonomously pursue goals
 - Agents can: do web research, manage goals, vote on decisions, message each other, message the keeper (human owner), send inter-room messages
 - Revenue model: users pay for "stations" (cloud compute for API-based agents)
@@ -322,7 +322,7 @@ async function setup(token) {
 
     const workerRes = await api('POST', '/api/workers', {
       name: r.name,
-      systemPrompt: `You are "${r.name}" — the ${r.role} specialist in an 11-agent growth team for 公司本地.
+      systemPrompt: `You are "${r.name}" — the ${r.role} specialist in an 11-agent growth team for 江湖.
 
 YOUR FOCUS AREA: ${r.focus}
 
@@ -573,7 +573,7 @@ function printResults(swarm) {
 async function main() {
   console.log('')
   console.log(`${C.bold}Growth Experiment${C.reset} — ${numCycles} cycles, 1 queen + ${numWorkers} workers (all claude CLI)`)
-  console.log(`Goal: "Find concrete ways to grow 公司本地 from 0 to 1000 users"`)
+  console.log(`Goal: "Find concrete ways to grow 江湖 from 0 to 1000 users"`)
   console.log('')
 
   // Build

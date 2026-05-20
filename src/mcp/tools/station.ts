@@ -49,7 +49,7 @@ export function registerStationTools(server: McpServer): void {
     'company_station_create',
     {
       title: '创建本地执行站',
-      description: '在本地公司模式中说明可用的本机执行入口。不要引导用户购买或创建外部云服务。',
+      description: '在本地江湖模式中说明可用的本机执行入口。不要引导用户购买或创建外部托管运行环境。',
       inputSchema: {
         roomId: z.number().describe('公司 ID'),
         name: z.string().min(1).max(100).describe('执行站名称，例如 web-server 或 scraper-01'),
@@ -285,7 +285,7 @@ export function registerStationTools(server: McpServer): void {
     {
       title: 'Create Station (Crypto)',
       description: 'Pay for a new Station with USDC or USDT from the room wallet on any supported chain. '
-        + 'Sends stablecoin to the 公司本地 treasury and provisions the Station automatically. '
+        + 'Sends stablecoin to the 江湖 treasury and provisions the Station automatically. '
         + 'Requires the room to have a wallet with sufficient balance. '
         + 'Crypto prices are 1.5x Stripe prices (micro $7.50, small $22.50, medium $60, large $150). '
         + 'Supported chains: base, ethereum, arbitrum, optimism, polygon. Tokens: usdc, usdt. '

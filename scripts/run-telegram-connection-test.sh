@@ -1,9 +1,9 @@
 #!/bin/bash
-# 虫族Telegram Bot连接自动化测试脚本
-# 自动化连接虫族Telegram Bot的流程
+# 江湖Telegram Bot连接自动化测试脚本
+# 自动化连接江湖Telegram Bot的流程
 
 echo "=================================="
-echo "  虫族Telegram Bot连接自动化"
+echo "  江湖Telegram Bot连接自动化"
 echo "=================================="
 echo ""
 

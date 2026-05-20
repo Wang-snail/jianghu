@@ -46,7 +46,7 @@ describe('windowsQuote', () => {
   })
 
   it('handles path with spaces', () => {
-    expect(windowsQuote('C:\\Program Files\\公司本地\\node.exe')).toBe('"C:\\Program Files\\公司本地\\node.exe"')
+    expect(windowsQuote('C:\\Program Files\\江湖\\node.exe')).toBe('"C:\\Program Files\\江湖\\node.exe"')
   })
 
   it('handles path with backslashes (does not double-escape)', () => {

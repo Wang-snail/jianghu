@@ -6,10 +6,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "=== 公司本地残留检查 ==="
+echo "=== 江湖残留检查 ==="
 echo ""
 
-PATTERN='旧云服务域名|旧云服务目录'
+PATTERN='旧托管域名|旧托管目录'
 
 if command -v rg >/dev/null 2>&1; then
   rg -n "$PATTERN" src scripts package.json README.md docs installers e2e 2>/dev/null || true
