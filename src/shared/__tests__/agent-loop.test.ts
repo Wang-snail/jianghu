@@ -1,0 +1,653 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type Database from 'better-sqlite3'
+import { initTestDb } from './helpers/test-db'
+import * as queries from '../db-queries'
+import { createRoom } from '../room'
+import type { AgentExecutionOptions } from '../agent-executor'
+
+// Mock agent-executor
+vi.mock('../agent-executor', () => ({
+  executeAgent: vi.fn()
+}))
+
+// Mock rate-limit sleep to resolve instantly (but keep detectRateLimit real)
+vi.mock('../rate-limit', async () => {
+  const actual = await vi.importActual('../rate-limit') as Record<string, unknown>
+  return {
+    ...actual,
+    sleep: vi.fn().mockResolvedValue(undefined)
+  }
+})
+
+import {
+  runCycle,
+  startAgentLoop,
+  pauseAgent,
+  triggerAgent,
+  getAgentState,
+  isAgentRunning,
+  _stopAllLoops,
+  RateLimitError,
+  setRoomLaunchEnabled,
+} from '../agent-loop'
+import { executeAgent } from '../agent-executor'
+import { sleep } from '../rate-limit'
+
+const mockExecuteAgent = vi.mocked(executeAgent)
+const mockSleep = vi.mocked(sleep)
+
+let db: Database.Database
+let roomId: number
+let queenId: number
+
+beforeEach(() => {
+  db = initTestDb()
+  vi.clearAllMocks()
+
+  const result = createRoom(db, { name: 'Test Room', goal: 'Make money' })
+  roomId = result.room.id
+  queenId = result.queen.id
+
+  mockExecuteAgent.mockResolvedValue({
+    output: 'I analyzed the situation and will focus on building a SaaS product.',
+    exitCode: 0,
+    durationMs: 5000,
+    sessionId: 'session-1',
+    timedOut: false
+  })
+})
+
+afterEach(() => {
+  _stopAllLoops()
+})
+
+describe('runCycle', () => {
+  it('executes a full observe-think-act-persist cycle', async () => {
+    const worker = queries.getWorker(db, queenId)!
+    const output = await runCycle(db, roomId, worker)
+
+    expect(output).toContain('SaaS product')
+    expect(mockExecuteAgent).toHaveBeenCalledOnce()
+
+    // Should have called with proper prompt containing room context
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('Make money')
+    expect(callArgs.systemPrompt).toContain(worker.systemPrompt)
+
+    // Agent state should be idle after cycle
+    expect(queries.getWorker(db, queenId)!.agentState).toBe('idle')
+
+    // Activity should be logged
+    const activity = queries.getRoomActivity(db, roomId)
+    expect(activity.some(a => a.summary.includes('Agent cycle completed'))).toBe(true)
+  })
+
+  it('includes active goals in context', async () => {
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('活跃委托')
+    expect(callArgs.prompt).toContain('Make money')
+  })
+
+  it('includes announced decisions in context', async () => {
+    queries.createAnnouncement(db, roomId, queenId, 'Build SaaS?', 'strategy',
+      new Date(Date.now() + 600000).toISOString())
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('待讨论事项')
+    expect(callArgs.prompt).toContain('Build SaaS?')
+  })
+
+  it('includes pending escalations in context', async () => {
+    const w2 = queries.createWorker(db, { name: 'Worker', systemPrompt: 'w', roomId })
+    queries.createEscalation(db, roomId, w2.id, 'How should I proceed?', queenId)
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('员工消息')
+    expect(callArgs.prompt).toContain('How should I proceed?')
+  })
+
+  it('includes queen controller contract in queen prompt', async () => {
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('天机阁驾驶舱契约')
+    expect(callArgs.prompt).toContain('创建弟子、分派镖单、监控交付')
+  })
+
+  it('does not inject queen controller contract for non-queen workers', async () => {
+    const w2 = queries.createWorker(db, { name: 'Executor', systemPrompt: 'execute', roomId })
+    mockExecuteAgent.mockClear()
+    await runCycle(db, roomId, w2)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).not.toContain('天机阁驾驶舱契约')
+  })
+
+  it('auto-creates one executor worker when queen is alone', async () => {
+    expect(queries.listRoomWorkers(db, roomId).length).toBe(1)
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const roomWorkers = queries.listRoomWorkers(db, roomId)
+    const nonQueen = roomWorkers.filter(w => w.id !== queenId)
+    expect(nonQueen).toHaveLength(1)
+    expect(nonQueen[0].role).toBe('executor')
+    expect(nonQueen[0].name).toMatch(/^executor-\d+$/)
+  })
+
+  it('does not create duplicate auto executors across cycles', async () => {
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+    await runCycle(db, roomId, worker)
+
+    const nonQueen = queries.listRoomWorkers(db, roomId).filter(w => w.id !== queenId)
+    expect(nonQueen).toHaveLength(1)
+  })
+
+  it('auto-created executor inherits codex model when room follows queen model', async () => {
+    queries.updateRoom(db, roomId, { workerModel: 'queen' } as Parameters<typeof queries.updateRoom>[2])
+    queries.updateWorker(db, queenId, { model: 'codex' } as Parameters<typeof queries.updateWorker>[2])
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const nonQueen = queries.listRoomWorkers(db, roomId).filter(w => w.id !== queenId)
+    expect(nonQueen).toHaveLength(1)
+    expect(nonQueen[0].model).toBe('codex')
+  })
+
+  it('logs soft policy deviation and stores corrective WIP when queen executes web tools', async () => {
+    queries.updateWorker(db, queenId, { model: 'openai:gpt-4o-mini' } as Parameters<typeof queries.updateWorker>[2])
+    queries.createCredential(db, roomId, 'openai_api_key', 'api_key', 'sk-test-key')
+    mockExecuteAgent.mockImplementationOnce(async (opts: AgentExecutionOptions) => {
+      if (opts.onConsoleLog) {
+        opts.onConsoleLog({ entryType: 'tool_call', content: '→ company_web_search({"query":"market size"})' })
+      }
+      return {
+        output: 'Execution completed.',
+        exitCode: 0,
+        durationMs: 200,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    const output = await runCycle(db, roomId, worker)
+
+    expect(output).toContain('Execution completed')
+    const activity = queries.getRoomActivity(db, roomId)
+    expect(activity.some(a => a.summary.includes('Queen policy deviation'))).toBe(true)
+    const updated = queries.getWorker(db, queenId)!
+    expect(updated.wip).toContain('天机阁驾驶舱模式')
+    expect(updated.wip).toContain('本地镖单委派工具')
+  })
+
+  it('keeps worker objection path visible in worker prompt context', async () => {
+    const w2 = queries.createWorker(db, { name: 'Worker', systemPrompt: 'execute tasks', roomId })
+    queries.createAnnouncement(db, roomId, queenId, 'Ship new pricing?', 'strategy',
+      new Date(Date.now() + 600000).toISOString())
+
+    mockExecuteAgent.mockClear()
+    await runCycle(db, roomId, w2)
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('待讨论事项')
+    expect(callArgs.prompt).toContain('本地反对/讨论工具')
+  })
+
+  it('uses worker model for execution', async () => {
+    queries.updateWorker(db, queenId, { model: 'openai:gpt-4o-mini' } as Parameters<typeof queries.updateWorker>[2])
+    queries.createCredential(db, roomId, 'openai_api_key', 'api_key', 'sk-test-key')
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    expect(mockExecuteAgent.mock.calls[0][0].model).toBe('openai:gpt-4o-mini')
+  })
+
+  it('injects universal local agent protocol and matching skills for every worker', async () => {
+    queries.createSkill(db, roomId, '收入增长方法', '优先选择可以直接产生收入的动作。', {
+      activationContext: ['money', 'revenue'],
+      autoActivate: true
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.systemPrompt).toContain('所有角色通用能力协议')
+    expect(callArgs.systemPrompt).toContain('本地软件执行')
+    expect(callArgs.systemPrompt).toContain('Claude Code 式问题处理')
+    expect(callArgs.systemPrompt).not.toContain('连接云服务')
+    expect(callArgs.prompt).toContain('## 自动激活的功法')
+    expect(callArgs.prompt).toContain('收入增长方法')
+    expect(callArgs.prompt).toContain('优先选择可以直接产生收入的动作')
+  })
+
+  it('limits API queen tools to the Hermes needed for the current cycle', async () => {
+    queries.updateWorker(db, queenId, { model: 'openai:gpt-4o-mini' } as Parameters<typeof queries.updateWorker>[2])
+    queries.createCredential(db, roomId, 'openai_api_key', 'api_key', 'sk-test-key')
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    const toolNames = callArgs.toolDefs?.map((tool) => tool.function.name) ?? []
+    expect(callArgs.prompt).toContain('本轮 Hermes 工具范围')
+    expect(toolNames).toContain('company_delegate_task')
+    expect(toolNames).toContain('company_save_wip')
+    expect(toolNames).not.toContain('company_wallet_send')
+    expect(toolNames).not.toContain('company_browser')
+  })
+
+  it('wakes research Hermes for worker research tasks without giving coordinator tools', async () => {
+    const w2 = queries.createWorker(db, {
+      name: 'Researcher',
+      role: 'researcher',
+      systemPrompt: '调查公开资料并整理证据。',
+      roomId,
+      model: 'openai:gpt-4o-mini'
+    })
+    queries.createCredential(db, roomId, 'openai_api_key', 'api_key', 'sk-test-key')
+    queries.createGoal(db, roomId, '搜索竞品资料并提取机会', undefined, w2.id)
+
+    mockExecuteAgent.mockClear()
+    await runCycle(db, roomId, w2)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    const toolNames = callArgs.toolDefs?.map((tool) => tool.function.name) ?? []
+    expect(toolNames).toContain('company_web_search')
+    expect(toolNames).toContain('company_web_fetch')
+    expect(toolNames).not.toContain('company_create_worker')
+    expect(toolNames).not.toContain('company_wallet_send')
+  })
+
+  it('adds file isolation boundaries to every gang agent prompt', async () => {
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('文件与记忆隔离')
+    expect(callArgs.prompt).toContain(`/companies/${roomId}/workers/${queenId}`)
+    expect(callArgs.prompt).toContain(`/companies/${roomId}/shared`)
+    expect(callArgs.prompt).toContain('不得读取或写入其他帮派、其他弟子的私有目录')
+  })
+
+  it('throws RateLimitError when executor returns rate limit response', async () => {
+    mockExecuteAgent.mockResolvedValue({
+      output: 'Error: 429 rate_limit_error: too many requests',
+      exitCode: 1,
+      durationMs: 100,
+      sessionId: null,
+      timedOut: false
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    await expect(runCycle(db, roomId, worker)).rejects.toThrow(RateLimitError)
+  })
+
+  it('does not throw for non-rate-limit errors', async () => {
+    mockExecuteAgent.mockResolvedValue({
+      output: 'Some generic error occurred',
+      exitCode: 1,
+      durationMs: 100,
+      sessionId: null,
+      timedOut: false
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    // Should not throw — non-rate-limit errors are just returned as output
+    const output = await runCycle(db, roomId, worker)
+    expect(output).toContain('generic error')
+  })
+
+  it('does not throw for timeout errors', async () => {
+    mockExecuteAgent.mockResolvedValue({
+      output: 'rate_limit_error',
+      exitCode: 1,
+      durationMs: 300000,
+      sessionId: null,
+      timedOut: true
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    const output = await runCycle(db, roomId, worker)
+    expect(output).toContain('rate_limit_error')
+  })
+
+  it('rotates long-running CLI sessions before execution', async () => {
+    for (let i = 0; i < 20; i++) {
+      queries.saveAgentSession(db, queenId, { sessionId: 'old-cli-session', model: 'claude' })
+    }
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.resumeSessionId).toBeUndefined()
+
+    const session = queries.getAgentSession(db, queenId)
+    expect(session?.sessionId).toBe('session-1')
+    expect(session?.turnCount).toBe(1)
+  })
+
+  it('clears malformed CLI session when execution fails with context overflow', async () => {
+    queries.saveAgentSession(db, queenId, { sessionId: null, model: 'claude' })
+    mockExecuteAgent.mockResolvedValue({
+      output: 'Error: context window exceeded while compacting conversation history',
+      exitCode: 1,
+      durationMs: 100,
+      sessionId: null,
+      timedOut: false
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    const output = await runCycle(db, roomId, worker)
+
+    expect(output).toContain('context window exceeded')
+    expect(queries.getAgentSession(db, queenId)).toBeUndefined()
+  })
+
+  it('retries same cycle with fresh CLI session after context overflow', async () => {
+    queries.updateWorker(db, queenId, { model: 'codex' } as Parameters<typeof queries.updateWorker>[2])
+    queries.saveAgentSession(db, queenId, { sessionId: 'stale-codex-session', model: 'codex' })
+
+    mockExecuteAgent
+      .mockResolvedValueOnce({
+        output: 'ERROR codex_core::compact_remote: remote compaction failed model_visible_bytes=2100000',
+        exitCode: 1,
+        durationMs: 1200,
+        sessionId: 'stale-codex-session',
+        timedOut: false
+      })
+      .mockResolvedValueOnce({
+        output: 'Recovered after fresh session and executed tools.',
+        exitCode: 0,
+        durationMs: 900,
+        sessionId: 'fresh-codex-session',
+        timedOut: false
+      })
+
+    const worker = queries.getWorker(db, queenId)!
+    const output = await runCycle(db, roomId, worker)
+
+    expect(output).toContain('Recovered after fresh session')
+    expect(mockExecuteAgent).toHaveBeenCalledTimes(2)
+    expect(mockExecuteAgent.mock.calls[0][0].resumeSessionId).toBe('stale-codex-session')
+    expect(mockExecuteAgent.mock.calls[1][0].resumeSessionId).toBeUndefined()
+
+    const session = queries.getAgentSession(db, queenId)
+    expect(session?.sessionId).toBe('fresh-codex-session')
+  })
+})
+
+describe('startAgentLoop', () => {
+  it('runs cycles continuously until paused', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      if (callCount >= 3) {
+        // Pause after 3 cycles
+        pauseAgent(db, queenId)
+      }
+      return {
+        output: `Cycle ${callCount}`,
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(3)
+    expect(isAgentRunning(queenId)).toBe(false)
+  })
+
+  it('enters rate_limited state and waits on rate limit', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        // First call: rate limited
+        return {
+          output: 'Error: 429 rate_limit_error',
+          exitCode: 1,
+          durationMs: 50,
+          sessionId: null,
+          timedOut: false
+        }
+      }
+      // Second call: success, then stop
+      pauseAgent(db, queenId)
+      return {
+        output: 'Success after rate limit',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(2)
+    // sleep was called for rate limit wait + gap waits
+    expect(mockSleep).toHaveBeenCalled()
+
+    // Activity should log the rate limit event
+    const activity = queries.getRoomActivity(db, roomId)
+    expect(activity.some(a => a.summary.includes('rate limited'))).toBe(true)
+  })
+
+  it('stops when room is no longer active', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      if (callCount >= 2) {
+        // Pause the room after 2 cycles
+        queries.updateRoom(db, roomId, { status: 'paused' })
+      }
+      return {
+        output: `Cycle ${callCount}`,
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(2)
+  })
+
+  it('continues after non-rate-limit errors', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        throw new Error('Connection failed')
+      }
+      if (callCount >= 3) {
+        pauseAgent(db, queenId)
+      }
+      return {
+        output: `Cycle ${callCount}`,
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(3)
+    // Error should be logged
+    const activity = queries.getRoomActivity(db, roomId)
+    expect(activity.some(a => a.summary.includes('cycle error'))).toBe(true)
+  })
+
+  it('skips if already running', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      // Try to start again while running — should be a no-op
+      await startAgentLoop(db, roomId, queenId)
+      pauseAgent(db, queenId)
+      return {
+        output: 'done',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(1) // Only one cycle, not two
+  })
+})
+
+describe('triggerAgent', () => {
+  it('aborts rate limit wait when triggered', async () => {
+    let callCount = 0
+    mockSleep.mockImplementation(async (_ms, signal) => {
+      if (callCount === 1 && signal) {
+        // During rate limit wait, simulate trigger by aborting
+        triggerAgent(db, roomId, queenId)
+        // The abort should cause sleep to reject
+        throw new Error('Rate limit wait aborted')
+      }
+    })
+
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        return {
+          output: 'Error: 429 rate_limit_error',
+          exitCode: 1,
+          durationMs: 50,
+          sessionId: null,
+          timedOut: false
+        }
+      }
+      pauseAgent(db, queenId)
+      return {
+        output: 'Resumed after trigger',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    await startAgentLoop(db, roomId, queenId)
+
+    expect(callCount).toBe(2)
+  })
+
+  it('does not cold-start when room launch is disabled', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      pauseAgent(db, queenId)
+      return {
+        output: 'done',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    expect(isAgentRunning(queenId)).toBe(false)
+    triggerAgent(db, roomId, queenId)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(callCount).toBe(0)
+    expect(isAgentRunning(queenId)).toBe(false)
+  })
+
+  it('cold-starts when allowColdStart is true', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      pauseAgent(db, queenId)
+      return {
+        output: 'started',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    triggerAgent(db, roomId, queenId, { allowColdStart: true })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(callCount).toBe(1)
+  })
+
+  it('cold-starts when room launch is enabled', async () => {
+    let callCount = 0
+    mockExecuteAgent.mockImplementation(async () => {
+      callCount++
+      pauseAgent(db, queenId)
+      return {
+        output: 'started',
+        exitCode: 0,
+        durationMs: 100,
+        sessionId: null,
+        timedOut: false
+      }
+    })
+
+    setRoomLaunchEnabled(roomId, true)
+    triggerAgent(db, roomId, queenId)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(callCount).toBe(1)
+  })
+})
+
+describe('pauseAgent', () => {
+  it('sets agent state to idle', () => {
+    queries.updateAgentState(db, queenId, 'thinking')
+    pauseAgent(db, queenId)
+    expect(queries.getWorker(db, queenId)!.agentState).toBe('idle')
+  })
+})
+
+describe('getAgentState', () => {
+  it('returns current agent state', () => {
+    expect(getAgentState(db, queenId)).toBe('idle')
+    queries.updateAgentState(db, queenId, 'thinking')
+    expect(getAgentState(db, queenId)).toBe('thinking')
+  })
+
+  it('returns idle for nonexistent worker', () => {
+    expect(getAgentState(db, 999)).toBe('idle')
+  })
+
+  it('supports rate_limited state', () => {
+    queries.updateAgentState(db, queenId, 'rate_limited')
+    expect(getAgentState(db, queenId)).toBe('rate_limited')
+  })
+})
+
+describe('isAgentRunning', () => {
+  it('returns false for non-running agent', () => {
+    expect(isAgentRunning(queenId)).toBe(false)
+  })
+})

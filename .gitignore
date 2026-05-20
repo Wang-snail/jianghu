@@ -1,0 +1,43 @@
+node_modules/
+out/
+dist/
+build/
+*.db
+*.db-journal
+*.db-wal
+*.tsbuildinfo
+.DS_Store
+*.log
+.env
+.env.*
+
+# User-specific MCP config (contains absolute paths)
+.mcp.json
+
+# Internal project docs (not for public repo)
+CLAUDE.md
+PROGRESS.md
+PLAN.md
+
+# Generated E2E artifacts
+e2e/report/
+e2e/results/
+e2e/screenshots/
+e2e/videos/
+test-results/
+playwright-report/
+coverage/
+
+# Local runtime workspaces
+.company-local-*/
+
+# Local verification screenshots
+verification*.png
+artifacts/
+
+# E2E / Playwright (private)
+e2e/
+playwright.config.ts
+
+# Internal ops docs
+docs/RELEASE_RUNBOOK.md

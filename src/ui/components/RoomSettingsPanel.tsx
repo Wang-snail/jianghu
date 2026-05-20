@@ -1,0 +1,1614 @@
+import { useState, useRef, useEffect } from 'react'
+import { usePolling } from '../hooks/usePolling'
+import { api } from '../lib/client'
+import {
+  ROOM_SETTINGS_REFRESH_EVENT_TYPES,
+} from '../lib/room-events'
+import { storageGet, storageRemove } from '../lib/storage'
+import { wsClient, type WsMessage } from '../lib/ws'
+import { Select } from './Select'
+import { PromptDialog } from './PromptDialog'
+import { ConfirmDialog } from './ConfirmDialog'
+import { RoomSetupGuideModal } from './RoomSetupGuideModal'
+import type { Room } from '@shared/types'
+import { OBJECTIVE_PLACEHOLDERS } from '../lib/objective-placeholders'
+
+interface RoomSettingsPanelProps {
+  roomId: number | null
+}
+
+interface QueenStatus {
+  running: boolean
+  model: string | null
+  auth: {
+    provider: 'claude_subscription' | 'codex_subscription' | 'openai_api' | 'anthropic_api' | 'gemini_api' | 'mimo_api'
+    mode: 'subscription' | 'api'
+    credentialName: string | null
+    envVar: string | null
+    hasCredential: boolean
+    hasEnvKey: boolean
+    ready: boolean
+    maskedKey: string | null
+  }
+}
+
+type ApiKeyFeedback = {
+  kind: 'info' | 'success' | 'error'
+  text: string
+}
+
+type ApiKeyPromptMode = 'validate' | 'save'
+type QueenModelSetupPhase = 'starting' | 'installing'
+type ProviderName = 'codex' | 'claude'
+type ProviderSessionStatus = 'starting' | 'running' | 'completed' | 'failed' | 'canceled' | 'timeout'
+
+interface ProviderSessionLine {
+  id: number
+  stream: 'stdout' | 'stderr' | 'system'
+  text: string
+  timestamp: string
+}
+
+interface ProviderAuthSession {
+  sessionId: string
+  provider: ProviderName
+  status: ProviderSessionStatus
+  command: string
+  startedAt: string
+  updatedAt: string
+  endedAt: string | null
+  exitCode: number | null
+  verificationUrl: string | null
+  deviceCode: string | null
+  active: boolean
+  lines: ProviderSessionLine[]
+}
+
+interface ProviderInstallSession {
+  sessionId: string
+  provider: ProviderName
+  status: ProviderSessionStatus
+  command: string
+  startedAt: string
+  updatedAt: string
+  endedAt: string | null
+  exitCode: number | null
+  active: boolean
+  lines: ProviderSessionLine[]
+}
+
+interface ProviderStatusEntry {
+  installed: boolean
+  version?: string
+  connected: boolean | null
+  requestedAt: string | null
+  disconnectedAt: string | null
+  authSession: ProviderAuthSession | null
+  installRequestedAt: string | null
+  installSession: ProviderInstallSession | null
+}
+
+interface InlineSpinnerProps {
+  label?: string
+}
+
+function InlineSpinner({ label = 'Applying...' }: InlineSpinnerProps): React.JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+      <span className="w-3 h-3 rounded-full border border-border-primary border-t-text-muted animate-spin" />
+      {label}
+    </span>
+  )
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error'
+}
+
+export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX.Element {
+  const { data: rooms, refresh } = usePolling<Room[]>(() => api.rooms.list(), 60000)
+  const { data: providerStatus, refresh: refreshProviderStatus } = usePolling<{
+    codex: ProviderStatusEntry
+    claude: ProviderStatusEntry
+  } | null>(
+    () => api.providers.status().catch(() => null),
+    120000
+  )
+  const [queenRunning, setQueenRunning] = useState<Record<number, boolean>>({})
+  const [queenModel, setQueenModel] = useState<Record<number, string | null>>({})
+  const [queenAuth, setQueenAuth] = useState<Record<number, QueenStatus['auth'] | null>>({})
+  const pendingModelUpdate = useRef(false)
+
+  // Fetch queen status for the selected room only.
+  const fetchQueenStatusRef = useRef(async (targetRoom: Room | null) => {
+    if (!targetRoom) return
+    if (!targetRoom.queenWorkerId) {
+      setQueenRunning(prev => ({ ...prev, [targetRoom.id]: false }))
+      if (!pendingModelUpdate.current) {
+        setQueenModel(prev => ({ ...prev, [targetRoom.id]: null }))
+        setQueenAuth(prev => ({ ...prev, [targetRoom.id]: null }))
+      }
+      return
+    }
+
+    const q = await api.rooms.queenStatus(targetRoom.id).catch(() => null)
+    setQueenRunning(prev => ({ ...prev, [targetRoom.id]: q?.running ?? false }))
+    if (!pendingModelUpdate.current) {
+      setQueenModel(prev => ({ ...prev, [targetRoom.id]: q?.model ?? null }))
+      setQueenAuth(prev => ({ ...prev, [targetRoom.id]: q?.auth ?? null }))
+    }
+  })
+
+  // Sync editingName/editingGoal when selected room changes
+  const currentRoom = rooms?.find(r => r.id === roomId) ?? null
+  const currentRoomRef = useRef<Room | null>(currentRoom)
+
+  useEffect(() => {
+    currentRoomRef.current = currentRoom
+  }, [currentRoom])
+
+  // Fetch queen status immediately when selected room is available.
+  useEffect(() => {
+    if (!currentRoom) return
+    void fetchQueenStatusRef.current(currentRoom)
+  }, [currentRoom?.id, currentRoom?.queenWorkerId])
+
+  usePolling(async () => {
+    if (!currentRoom) return {}
+    await fetchQueenStatusRef.current(currentRoom)
+    return {}
+  }, 60000)
+
+  useEffect(() => {
+    if (!roomId) return
+    return wsClient.subscribe(`room:${roomId}`, (event: WsMessage) => {
+      if (ROOM_SETTINGS_REFRESH_EVENT_TYPES.has(event.type)) {
+        void refresh()
+        if (currentRoomRef.current) {
+          void fetchQueenStatusRef.current(currentRoomRef.current)
+        }
+      }
+    })
+  }, [refresh, roomId])
+
+  useEffect(() => {
+    if (!roomId) return
+    return wsClient.subscribe('providers', () => {
+      void refreshProviderStatus()
+    })
+  }, [refreshProviderStatus, roomId])
+
+  const [roomOverrides, setRoomOverrides] = useState<Record<number, Partial<Room>>>({})
+  const [apiKeyPrompt, setApiKeyPrompt] = useState<{
+    roomId: number
+    auth: NonNullable<QueenStatus['auth']>
+    mode: ApiKeyPromptMode
+  } | null>(null)
+  const [apiKeyBusyRoomId, setApiKeyBusyRoomId] = useState<number | null>(null)
+  const [apiKeyFeedback, setApiKeyFeedback] = useState<Record<number, ApiKeyFeedback | null>>({})
+  const [editingName, setEditingName] = useState('')
+  const [editingGoal, setEditingGoal] = useState('')
+  const [editingQueenNickname, setEditingQueenNickname] = useState('')
+  const [queenModelBusyRoomId, setQueenModelBusyRoomId] = useState<number | null>(null)
+  const [queenModelFeedback, setQueenModelFeedback] = useState<Record<number, ApiKeyFeedback | null>>({})
+  const [providerFeedback, setProviderFeedback] = useState<Record<number, ApiKeyFeedback | null>>({})
+  const [providerAuthSessions, setProviderAuthSessions] = useState<Partial<Record<ProviderName, ProviderAuthSession | null>>>({})
+  const [providerInstallSessions, setProviderInstallSessions] = useState<Partial<Record<ProviderName, ProviderInstallSession | null>>>({})
+  const [providerAuthBusySessionId, setProviderAuthBusySessionId] = useState<string | null>(null)
+  const [providerInstallBusySessionId, setProviderInstallBusySessionId] = useState<string | null>(null)
+  const providerAuthUnsubsRef = useRef<Map<string, () => void>>(new Map())
+  const providerInstallUnsubsRef = useRef<Map<string, () => void>>(new Map())
+  const [queenModelSetup, setQueenModelSetup] = useState<{ roomId: number; phase: QueenModelSetupPhase; startedAt: number } | null>(null)
+  const [queenModelSetupTick, setQueenModelSetupTick] = useState<number>(Date.now())
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const [archiveError, setArchiveError] = useState<string | null>(null)
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const [showSetupGuide, setShowSetupGuide] = useState(false)
+  const [objectivePlaceholderIdx, setObjectivePlaceholderIdx] = useState(0)
+  const [pendingSwitches, setPendingSwitches] = useState<Record<string, boolean>>({})
+  const pendingSwitchTokensRef = useRef<Record<string, number>>({})
+  const pendingSwitchTimeoutsRef = useRef<Map<string, number>>(new Map())
+
+  useEffect(() => {
+    if (currentRoom) {
+      setEditingName(currentRoom.name)
+      setEditingGoal(currentRoom.goal ?? '')
+      setEditingQueenNickname(currentRoom.queenNickname ?? '')
+    }
+  }, [currentRoom?.name, currentRoom?.goal, currentRoom?.queenNickname, currentRoom?.id])
+
+  useEffect(() => {
+  }, [])
+
+  // Clear any stale setup-flow marker from older builds without opening a popup.
+  useEffect(() => {
+    if (!roomId) return
+    const requestedRoom = storageGet('zuzu_setup_flow_room')
+    if (requestedRoom && Number(requestedRoom) === roomId) {
+      storageRemove('zuzu_setup_flow_room')
+    }
+  }, [roomId])
+
+  useEffect(() => {
+    if (!queenModelSetup) return
+    const timer = window.setInterval(() => setQueenModelSetupTick(Date.now()), 500)
+    return () => window.clearInterval(timer)
+  }, [queenModelSetup])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setObjectivePlaceholderIdx((prev) => (prev + 1) % OBJECTIVE_PLACEHOLDERS.length)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  function upsertProviderAuthSession(session: ProviderAuthSession): void {
+    setProviderAuthSessions(prev => ({ ...prev, [session.provider]: session }))
+  }
+
+  function upsertProviderInstallSession(session: ProviderInstallSession): void {
+    setProviderInstallSessions(prev => ({ ...prev, [session.provider]: session }))
+  }
+
+  function providerAuthStatusLabel(status: ProviderSessionStatus): string {
+    switch (status) {
+      case 'starting': return '启动中'
+      case 'running': return '等待登录'
+      case 'completed': return '已连接'
+      case 'failed': return '失败'
+      case 'canceled': return '已取消'
+      case 'timeout': return '已超时'
+      default: return status
+    }
+  }
+
+  function providerInstallStatusLabel(status: ProviderSessionStatus): string {
+    switch (status) {
+      case 'starting': return '启动中'
+      case 'running': return '安装中'
+      case 'completed': return '已安装'
+      case 'failed': return '失败'
+      case 'canceled': return '已取消'
+      case 'timeout': return '已超时'
+      default: return status
+    }
+  }
+
+  useEffect(() => {
+    if (!providerStatus) return
+    setProviderAuthSessions(prev => ({
+      codex: providerStatus.codex.authSession ?? prev.codex ?? null,
+      claude: providerStatus.claude.authSession ?? prev.claude ?? null,
+    }))
+    setProviderInstallSessions(prev => ({
+      codex: providerStatus.codex.installSession ?? prev.codex ?? null,
+      claude: providerStatus.claude.installSession ?? prev.claude ?? null,
+    }))
+  }, [providerStatus])
+
+  useEffect(() => {
+    const unsubs = providerAuthUnsubsRef.current
+    const activeSessions = [providerAuthSessions.codex, providerAuthSessions.claude]
+      .filter((session): session is ProviderAuthSession => Boolean(session?.active))
+    const activeIds = new Set(activeSessions.map((session) => session.sessionId))
+
+    for (const [sessionId, unsubscribe] of [...unsubs.entries()]) {
+      if (!activeIds.has(sessionId)) {
+        unsubscribe()
+        unsubs.delete(sessionId)
+      }
+    }
+
+    for (const session of activeSessions) {
+      if (unsubs.has(session.sessionId)) continue
+      const unsubscribe = wsClient.subscribe(`provider-auth:${session.sessionId}`, (event: WsMessage) => {
+        if (event.type === 'provider_auth:status') {
+          const data = event.data as ProviderAuthSession
+          if (!data?.sessionId || !data?.provider) return
+          upsertProviderAuthSession(data)
+          if (!data.active) void refreshProviderStatus()
+          return
+        }
+        if (event.type === 'provider_auth:line') {
+          const data = event.data as {
+            sessionId: string
+            provider: ProviderName
+            id: number
+            stream: 'stdout' | 'stderr' | 'system'
+            text: string
+            timestamp: string
+            deviceCode?: string | null
+            verificationUrl?: string | null
+          }
+          if (!data?.sessionId || !data?.provider) return
+          setProviderAuthSessions(prev => {
+            const current = prev[data.provider]
+            if (!current || current.sessionId !== data.sessionId) return prev
+            if (current.lines.some((line) => line.id === data.id)) return prev
+            const nextLines = [...current.lines, {
+              id: data.id,
+              stream: data.stream,
+              text: data.text,
+              timestamp: data.timestamp,
+            }]
+            return {
+              ...prev,
+              [data.provider]: {
+                ...current,
+                updatedAt: data.timestamp,
+                lines: nextLines.slice(-300),
+                deviceCode: data.deviceCode ?? current.deviceCode,
+                verificationUrl: data.verificationUrl ?? current.verificationUrl,
+              },
+            }
+          })
+        }
+      })
+      unsubs.set(session.sessionId, unsubscribe)
+    }
+  }, [
+    providerAuthSessions.codex?.sessionId,
+    providerAuthSessions.codex?.active,
+    providerAuthSessions.claude?.sessionId,
+    providerAuthSessions.claude?.active,
+    refreshProviderStatus,
+  ])
+
+  useEffect(() => {
+    const unsubs = providerInstallUnsubsRef.current
+    const activeSessions = [providerInstallSessions.codex, providerInstallSessions.claude]
+      .filter((session): session is ProviderInstallSession => Boolean(session?.active))
+    const activeIds = new Set(activeSessions.map((session) => session.sessionId))
+
+    for (const [sessionId, unsubscribe] of [...unsubs.entries()]) {
+      if (!activeIds.has(sessionId)) {
+        unsubscribe()
+        unsubs.delete(sessionId)
+      }
+    }
+
+    for (const session of activeSessions) {
+      if (unsubs.has(session.sessionId)) continue
+      const unsubscribe = wsClient.subscribe(`provider-install:${session.sessionId}`, (event: WsMessage) => {
+        if (event.type === 'provider_install:status') {
+          const data = event.data as ProviderInstallSession
+          if (!data?.sessionId || !data?.provider) return
+          upsertProviderInstallSession(data)
+          if (!data.active) void refreshProviderStatus()
+          return
+        }
+        if (event.type === 'provider_install:line') {
+          const data = event.data as {
+            sessionId: string
+            provider: ProviderName
+            id: number
+            stream: 'stdout' | 'stderr' | 'system'
+            text: string
+            timestamp: string
+          }
+          if (!data?.sessionId || !data?.provider) return
+          setProviderInstallSessions(prev => {
+            const current = prev[data.provider]
+            if (!current || current.sessionId !== data.sessionId) return prev
+            if (current.lines.some((line) => line.id === data.id)) return prev
+            const nextLines = [...current.lines, {
+              id: data.id,
+              stream: data.stream,
+              text: data.text,
+              timestamp: data.timestamp,
+            }]
+            return {
+              ...prev,
+              [data.provider]: {
+                ...current,
+                updatedAt: data.timestamp,
+                lines: nextLines.slice(-300),
+              },
+            }
+          })
+        }
+      })
+      unsubs.set(session.sessionId, unsubscribe)
+    }
+  }, [
+    providerInstallSessions.codex?.sessionId,
+    providerInstallSessions.codex?.active,
+    providerInstallSessions.claude?.sessionId,
+    providerInstallSessions.claude?.active,
+    refreshProviderStatus,
+  ])
+
+  useEffect(() => () => {
+    const authUnsubs = providerAuthUnsubsRef.current
+    for (const unsubscribe of authUnsubs.values()) unsubscribe()
+    authUnsubs.clear()
+    const installUnsubs = providerInstallUnsubsRef.current
+    for (const unsubscribe of installUnsubs.values()) unsubscribe()
+    installUnsubs.clear()
+  }, [])
+
+  useEffect(() => () => {
+    const timeouts = pendingSwitchTimeoutsRef.current
+    for (const timeoutId of timeouts.values()) {
+      window.clearTimeout(timeoutId)
+    }
+    timeouts.clear()
+  }, [])
+
+  function startSwitchPending(key: string): number {
+    const token = (pendingSwitchTokensRef.current[key] ?? 0) + 1
+    pendingSwitchTokensRef.current[key] = token
+    setPendingSwitches((prev) => ({ ...prev, [key]: true }))
+
+    const existingTimeout = pendingSwitchTimeoutsRef.current.get(key)
+    if (existingTimeout) window.clearTimeout(existingTimeout)
+    const timeoutId = window.setTimeout(() => {
+      if (pendingSwitchTokensRef.current[key] !== token) return
+      setPendingSwitches((prev) => {
+        if (!prev[key]) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      pendingSwitchTimeoutsRef.current.delete(key)
+    }, 20_000)
+    pendingSwitchTimeoutsRef.current.set(key, timeoutId)
+    return token
+  }
+
+  function stopSwitchPending(key: string, token: number): void {
+    if (pendingSwitchTokensRef.current[key] !== token) return
+    const timeoutId = pendingSwitchTimeoutsRef.current.get(key)
+    if (timeoutId) window.clearTimeout(timeoutId)
+    pendingSwitchTimeoutsRef.current.delete(key)
+    setPendingSwitches((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  function isSwitchPending(key: string): boolean {
+    return pendingSwitches[key] === true
+  }
+
+  async function withSwitchPending<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const token = startSwitchPending(key)
+    try {
+      return await fn()
+    } finally {
+      stopSwitchPending(key, token)
+    }
+  }
+
+  function optimistic(id: number, patch: Partial<Room>): void {
+    setRoomOverrides(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
+  }
+
+  async function handleToggleVisibility(room: Room): Promise<void> {
+    await withSwitchPending(`visibility:${room.id}`, async () => {
+      const next = room.visibility === 'public' ? 'private' : 'public'
+      optimistic(room.id, { visibility: next })
+      await api.rooms.update(room.id, { visibility: next })
+      refresh()
+    })
+  }
+
+  async function handleChangeMaxTasks(room: Room, delta: number): Promise<void> {
+    const next = Math.max(1, Math.min(10, room.maxConcurrentTasks + delta))
+    if (next === room.maxConcurrentTasks) return
+    optimistic(room.id, { maxConcurrentTasks: next })
+    await api.rooms.update(room.id, { maxConcurrentTasks: next })
+    refresh()
+  }
+
+  async function handleSetCycleGap(room: Room, ms: number): Promise<void> {
+    optimistic(room.id, { queenCycleGapMs: ms })
+    await api.rooms.update(room.id, { queenCycleGapMs: ms })
+    refresh()
+  }
+
+  async function handleSetMaxTurns(room: Room, delta: number): Promise<void> {
+    const next = Math.max(1, Math.min(50, room.queenMaxTurns + delta))
+    if (next === room.queenMaxTurns) return
+    optimistic(room.id, { queenMaxTurns: next })
+    await api.rooms.update(room.id, { queenMaxTurns: next })
+    refresh()
+  }
+
+  async function handleSetQuietHours(room: Room, from: string | null, until: string | null): Promise<void> {
+    await withSwitchPending(`quiet-hours:${room.id}`, async () => {
+      optimistic(room.id, { queenQuietFrom: from, queenQuietUntil: until })
+      await api.rooms.update(room.id, { queenQuietFrom: from, queenQuietUntil: until })
+      refresh()
+    })
+  }
+
+  async function handleToggleQuietHours(room: Room): Promise<void> {
+    if (room.queenQuietFrom !== null) {
+      await handleSetQuietHours(room, null, null)
+    } else {
+      await handleSetQuietHours(room, '22:00', '08:00')
+    }
+  }
+
+  async function handleSetWorkerModel(room: Room, workerModel: string): Promise<void> {
+    optimistic(room.id, { workerModel })
+    try {
+      await api.rooms.update(room.id, { workerModel })
+      refresh()
+    } catch (e) {
+      console.error('Failed to update worker model:', e)
+      optimistic(room.id, { workerModel: room.workerModel })
+    }
+  }
+
+  async function handleSetQueenModel(room: Room, model: string): Promise<void> {
+    if (queenModelBusyRoomId === room.id) return
+    if (!room.queenWorkerId) return
+    const dbModel = model === 'claude' ? null : model
+    // Save previous state for rollback on error
+    const prevModel = queenModel[room.id] ?? null
+    const prevAuth = queenAuth[room.id] ?? null
+    setQueenModel(prev => ({ ...prev, [room.id]: dbModel }))
+    // Set auth optimistically so API key row appears immediately
+    if (model.startsWith('openai:')) {
+      setQueenAuth(prev => ({ ...prev, [room.id]: { provider: 'openai_api', mode: 'api', credentialName: 'openai_api_key', envVar: 'OPENAI_API_KEY', hasCredential: false, hasEnvKey: false, ready: false, maskedKey: null } }))
+    } else if (model.startsWith('anthropic:')) {
+      setQueenAuth(prev => ({ ...prev, [room.id]: { provider: 'anthropic_api', mode: 'api', credentialName: 'anthropic_api_key', envVar: 'ANTHROPIC_API_KEY', hasCredential: false, hasEnvKey: false, ready: false, maskedKey: null } }))
+    } else if (model.startsWith('gemini:')) {
+      setQueenAuth(prev => ({ ...prev, [room.id]: { provider: 'gemini_api', mode: 'api', credentialName: 'gemini_api_key', envVar: 'GEMINI_API_KEY', hasCredential: false, hasEnvKey: false, ready: false, maskedKey: null } }))
+    } else if (model.startsWith('mimo:')) {
+      setQueenAuth(prev => ({ ...prev, [room.id]: { provider: 'mimo_api', mode: 'api', credentialName: 'mimo_api_key', envVar: 'MIMO_API_KEY', hasCredential: false, hasEnvKey: false, ready: false, maskedKey: null } }))
+    } else {
+      setQueenAuth(prev => ({ ...prev, [room.id]: { provider: 'claude_subscription', mode: 'subscription', credentialName: null, envVar: null, hasCredential: false, hasEnvKey: false, ready: true, maskedKey: null } }))
+    }
+    pendingModelUpdate.current = true
+    setQueenModelBusyRoomId(room.id)
+    let persistedModel = false
+    try {
+      await api.workers.update(room.queenWorkerId, { model: dbModel })
+      persistedModel = true
+      const q = await api.rooms.queenStatus(room.id).catch(() => null)
+      if (q) {
+        setQueenModel(prev => ({ ...prev, [room.id]: q.model ?? null }))
+        setQueenAuth(prev => ({ ...prev, [room.id]: q.auth }))
+      }
+      setQueenModelSetup(null)
+      setQueenModelFeedback(prev => ({ ...prev, [room.id]: null }))
+    } catch (e) {
+      console.error('更新天机阁模型失败:', e)
+      const message = e instanceof Error ? e.message : '更新天机阁模型失败'
+      if (!persistedModel) {
+        // Revert only when model save itself failed.
+        setQueenModel(prev => ({ ...prev, [room.id]: prevModel }))
+        setQueenAuth(prev => ({ ...prev, [room.id]: prevAuth }))
+        setQueenModelFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+      } else {
+        // Keep selected model; setup can be retried.
+        setQueenModelFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: `模型已保存，但设置失败：${message}` } }))
+      }
+    } finally {
+      setQueenModelSetup(null)
+      if (persistedModel) {
+        const q = await api.rooms.queenStatus(room.id).catch(() => null)
+        if (q) {
+          setQueenModel(prev => ({ ...prev, [room.id]: q.model ?? null }))
+          setQueenAuth(prev => ({ ...prev, [room.id]: q.auth }))
+        }
+      }
+      pendingModelUpdate.current = false
+      setQueenModelBusyRoomId(null)
+    }
+  }
+
+  function openApiKeyPrompt(room: Room, auth: QueenStatus['auth'] | null, mode: ApiKeyPromptMode): void {
+    if (!auth || auth.mode !== 'api' || !auth.credentialName) return
+    setApiKeyPrompt({ roomId: room.id, auth, mode })
+    setApiKeyFeedback(prev => ({ ...prev, [room.id]: null }))
+  }
+
+  async function submitApiKey(value: string): Promise<void> {
+    if (!apiKeyPrompt) return
+    const { roomId: targetRoomId, auth, mode } = apiKeyPrompt
+    if (apiKeyBusyRoomId === targetRoomId) return
+    const providerName = auth.credentialName === 'openai_api_key' ? 'OpenAI' : auth.credentialName === 'gemini_api_key' ? 'Gemini' : auth.credentialName === 'mimo_api_key' ? 'MiMo' : 'Anthropic'
+    const shouldSave = mode === 'save'
+    if (shouldSave) pendingModelUpdate.current = true
+    setApiKeyBusyRoomId(targetRoomId)
+    setApiKeyFeedback(prev => ({ ...prev, [targetRoomId]: { kind: 'info', text: `正在验证 ${providerName} 密钥...` } }))
+    try {
+      await api.credentials.validate(targetRoomId, auth.credentialName!, value)
+      if (shouldSave) {
+        await api.credentials.create(targetRoomId, auth.credentialName!, value, 'api_key')
+        setQueenAuth(prev => ({ ...prev, [targetRoomId]: { ...auth, hasCredential: true, ready: true } }))
+        const q = await api.rooms.queenStatus(targetRoomId).catch(() => null)
+        if (q) {
+          setQueenAuth(prev => ({ ...prev, [targetRoomId]: q.auth }))
+        }
+        setApiKeyFeedback(prev => ({ ...prev, [targetRoomId]: { kind: 'success', text: `${providerName} API 密钥已验证并保存。` } }))
+      } else {
+        setApiKeyFeedback(prev => ({ ...prev, [targetRoomId]: { kind: 'success', text: `${providerName} API 密钥有效。` } }))
+      }
+      setApiKeyPrompt(null)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : `Failed to validate ${providerName} API key`
+      setApiKeyFeedback(prev => ({ ...prev, [targetRoomId]: { kind: 'error', text: message } }))
+    } finally {
+      if (shouldSave) pendingModelUpdate.current = false
+      setApiKeyBusyRoomId(null)
+    }
+  }
+
+  async function handleProviderConnect(room: Room, provider: 'codex' | 'claude'): Promise<void> {
+    setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'info', text: `正在准备 ${provider} 登录...` } }))
+    try {
+      const response = await api.providers.connect(provider)
+      upsertProviderAuthSession(response.session)
+      await refreshProviderStatus()
+      setProviderFeedback(prev => ({
+        ...prev,
+        [room.id]: {
+          kind: 'success',
+          text: response.reused
+            ? `${provider} login is already running. Continue in the log panel below.`
+            : `${provider} login started. Continue in the log panel below.`,
+        },
+      }))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : `Failed to connect ${provider}`
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+    }
+  }
+
+  async function handleProviderInstall(room: Room, provider: 'codex' | 'claude'): Promise<void> {
+    setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'info', text: `正在安装 ${provider} CLI...` } }))
+    try {
+      const response = await api.providers.install(provider)
+      if (response.session) {
+        upsertProviderInstallSession(response.session)
+      }
+      await refreshProviderStatus()
+      setProviderFeedback(prev => ({
+        ...prev,
+        [room.id]: {
+          kind: 'success',
+          text: response.status === 'already_installed'
+            ? `${provider} CLI is already installed.`
+            : response.reused
+              ? `${provider} install is already running. Continue in the install log below.`
+              : `${provider} install started. Continue in the install log below.`,
+        },
+      }))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : `Failed to install ${provider}`
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+    }
+  }
+
+  async function handleProviderDisconnect(room: Room, provider: 'codex' | 'claude'): Promise<void> {
+    setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'info', text: `正在断开 ${provider}...` } }))
+    try {
+      await api.providers.disconnect(provider)
+      setProviderAuthSessions(prev => {
+        const current = prev[provider]
+        return { ...prev, [provider]: current ? { ...current, active: false } : null }
+      })
+      await refreshProviderStatus()
+      setProviderFeedback(prev => ({
+        ...prev,
+        [room.id]: { kind: 'success', text: `${provider} 已断开。` },
+      }))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : `Failed to disconnect ${provider}`
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+    }
+  }
+
+  async function handleProviderAuthCancel(room: Room, sessionId: string): Promise<void> {
+    if (providerAuthBusySessionId === sessionId) return
+    setProviderAuthBusySessionId(sessionId)
+    setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'info', text: '正在取消登录流程...' } }))
+    try {
+      const response = await api.providers.cancelSession(sessionId)
+      upsertProviderAuthSession(response.session)
+      await refreshProviderStatus()
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'success', text: '登录流程已取消。' } }))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to cancel login flow'
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+    } finally {
+      setProviderAuthBusySessionId(null)
+    }
+  }
+
+  async function handleProviderInstallCancel(room: Room, sessionId: string): Promise<void> {
+    if (providerInstallBusySessionId === sessionId) return
+    setProviderInstallBusySessionId(sessionId)
+    setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'info', text: '正在取消安装流程...' } }))
+    try {
+      const response = await api.providers.cancelInstallSession(sessionId)
+      upsertProviderInstallSession(response.session)
+      await refreshProviderStatus()
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'success', text: '安装流程已取消。' } }))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to cancel install flow'
+      setProviderFeedback(prev => ({ ...prev, [room.id]: { kind: 'error', text: message } }))
+    } finally {
+      setProviderInstallBusySessionId(null)
+    }
+  }
+
+  async function handleQueenStart(targetRoomId: number): Promise<void> {
+    await withSwitchPending(`queen-running:${targetRoomId}`, async () => {
+      setQueenRunning(prev => ({ ...prev, [targetRoomId]: true }))
+      try {
+        await api.rooms.start(targetRoomId)
+      } catch {
+        setQueenRunning(prev => ({ ...prev, [targetRoomId]: false }))
+      }
+    })
+  }
+
+  async function handleQueenStop(targetRoomId: number): Promise<void> {
+    await withSwitchPending(`queen-running:${targetRoomId}`, async () => {
+      setQueenRunning(prev => ({ ...prev, [targetRoomId]: false }))
+      try {
+        await api.rooms.stop(targetRoomId)
+      } catch {
+        setQueenRunning(prev => ({ ...prev, [targetRoomId]: true }))
+      }
+    })
+  }
+
+
+  if (roomId === null) {
+    return <p className="p-4 text-sm text-text-muted">请选择帮派以查看设置。</p>
+  }
+
+  const rawRoom = rooms?.find(r => r.id === roomId)
+  if (!rawRoom) {
+    return <p className="p-4 flex-1 flex items-center justify-center text-base text-text-muted">Loading...</p>
+  }
+
+  const room = { ...rawRoom, ...roomOverrides[rawRoom.id] }
+  const quietHoursPending = isSwitchPending(`quiet-hours:${room.id}`)
+  const visibilityPending = isSwitchPending(`visibility:${room.id}`)
+  const governancePending = isSwitchPending(`governance:${room.id}`)
+  const queenRunningPending = isSwitchPending(`queen-running:${room.id}`)
+  const quietEnabled = room.queenQuietFrom !== null
+  const activeQueenAuth = queenAuth[room.id] ?? null
+  const hasQueenModelLoaded = Object.prototype.hasOwnProperty.call(queenModel, room.id)
+  const isQueenModelBusy = queenModelBusyRoomId === room.id
+  const queenModelValue = hasQueenModelLoaded ? (queenModel[room.id] ?? 'claude') : '__loading__'
+  const queenModelSetupActive = false
+  const queenModelSetupPct = 0
+  const queenModelSetupLabel = ''
+  const elapsedText = '0:00'
+  const showQueenSubscriptionStatus = activeQueenAuth?.provider === 'claude_subscription'
+    || activeQueenAuth?.provider === 'codex_subscription'
+  const queenSubscriptionProvider: 'codex' | 'claude' | null = activeQueenAuth?.provider === 'codex_subscription'
+    ? 'codex'
+    : activeQueenAuth?.provider === 'claude_subscription'
+      ? 'claude'
+      : null
+  const queenSubscriptionStatus = queenSubscriptionProvider ? providerStatus?.[queenSubscriptionProvider] ?? null : null
+  const queenProviderAuthSession = queenSubscriptionProvider
+    ? (providerAuthSessions[queenSubscriptionProvider] ?? queenSubscriptionStatus?.authSession ?? null)
+    : null
+  const queenProviderInstallSession = queenSubscriptionProvider
+    ? (providerInstallSessions[queenSubscriptionProvider] ?? queenSubscriptionStatus?.installSession ?? null)
+    : null
+  const queenProviderAuthBusy = queenProviderAuthSession
+    ? providerAuthBusySessionId === queenProviderAuthSession.sessionId
+    : false
+  const queenProviderInstallBusy = queenProviderInstallSession
+    ? providerInstallBusySessionId === queenProviderInstallSession.sessionId
+    : false
+  const queenProviderAuthRecentLines = queenProviderAuthSession?.lines.slice(-12) ?? []
+  const queenProviderInstallRecentLines = queenProviderInstallSession?.lines.slice(-12) ?? []
+  const queenModelOptions = [
+    { value: 'mimo:MiMo-V2.5-Pro', label: 'MiMo-V2.5-Pro（环境变量/API）' },
+    { value: 'mimo:MiMo-V2.5', label: 'MiMo-V2.5（环境变量/API）' },
+    { value: 'mimo:MiMo-V2-Pro', label: 'MiMo-V2-Pro（环境变量/API）' },
+    { value: 'claude', label: 'Claude Code（订阅）' },
+    { value: 'claude-opus-4-6', label: 'Opus（订阅）' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet（订阅）' },
+    { value: 'claude-haiku-4-5-20251001', label: 'Haiku（订阅）' },
+    { value: 'codex', label: 'Codex（ChatGPT 订阅）' },
+    { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini（API）' },
+    { value: 'openai:gpt-4o', label: 'GPT-4o（API）' },
+    { value: 'anthropic:claude-haiku-4-5-20251001', label: 'Haiku（API）' },
+    { value: 'anthropic:claude-sonnet-4-6', label: 'Sonnet（API）' },
+    { value: 'anthropic:claude-opus-4-6', label: 'Opus（API）' },
+    { value: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash（API）' },
+    { value: 'gemini:gemini-2.5-pro', label: 'Gemini 2.5 Pro（API）' },
+  ]
+  if (!hasQueenModelLoaded) {
+    queenModelOptions.unshift({ value: '__loading__', label: '加载中...' })
+  } else if (!queenModelOptions.some((option) => option.value === queenModelValue)) {
+    // Unknown model — show a cleaned-up label instead of the raw value
+    const unknownLabel = queenModelValue.includes(':')
+      ? queenModelValue.split(':').slice(1).join(':')
+      : queenModelValue
+    queenModelOptions.unshift({ value: queenModelValue, label: `当前：${unknownLabel}` })
+  }
+  const hasWorkerModelLoaded = typeof room.workerModel === 'string' && room.workerModel.trim().length > 0
+  const workerModelValue = hasWorkerModelLoaded ? room.workerModel : '__loading__'
+  const workerModelOptions = [
+    { value: 'queen', label: '跟随天机阁模型' },
+  ]
+  if (!hasWorkerModelLoaded) {
+    workerModelOptions.unshift({ value: '__loading__', label: '加载中...' })
+  } else if (!workerModelOptions.some((option) => option.value === room.workerModel)) {
+    workerModelOptions.unshift({ value: room.workerModel, label: `当前：${room.workerModel}` })
+  }
+
+  const hasClaudeSubscription = providerStatus?.claude.connected === true
+  const hasCodexSubscription = providerStatus?.codex.connected === true
+  const currentIsCodex = queenModelValue === 'codex' || queenModelValue.startsWith('codex')
+  const currentIsClaude = queenModelValue === 'claude' || queenModelValue.startsWith('claude')
+  const recommendedQueenModel = currentIsCodex && hasCodexSubscription
+    ? 'codex'
+    : currentIsClaude && hasClaudeSubscription
+      ? 'claude'
+      : hasClaudeSubscription
+        ? 'claude'
+        : hasCodexSubscription
+          ? 'codex'
+          : null
+  const recommendationLabel = recommendedQueenModel === 'claude'
+    ? 'Claude 订阅'
+    : recommendedQueenModel === 'codex'
+      ? 'Codex 订阅'
+      : activeQueenAuth?.mode === 'api'
+          ? 'API 密钥路径'
+          : '选择配置方式'
+  const recommendationHint = recommendedQueenModel
+    ? '检测到订阅，适合持续运行。'
+    : activeQueenAuth?.mode === 'api'
+      ? '已选择 API 模型。请添加并验证密钥，避免天机阁执行失败。'
+      : '暂未检测到订阅。可先使用 MiMo/API 模型；订阅连接后会自动可用。'
+
+  function row(label: string, children: React.ReactNode, description?: string): React.JSX.Element {
+    return (
+      <div className="py-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-text-secondary">{label}</span>
+          <div>{children}</div>
+        </div>
+        {description && <p className="text-xs text-text-muted mt-0.5 leading-tight">{description}</p>}
+      </div>
+    )
+  }
+
+  function toggleRow(label: string, value: boolean, onChange: () => void, description?: string, pending?: boolean): React.JSX.Element {
+    return (
+      <div className="py-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-text-secondary">{label}</span>
+          <div className="flex items-center gap-2">
+            {pending && <InlineSpinner />}
+            <button
+              onClick={onChange}
+              disabled={pending}
+              className={`w-9 h-5 rounded-full transition-colors relative disabled:opacity-70 disabled:cursor-not-allowed ${value ? 'bg-interactive' : 'bg-surface-tertiary'}`}
+            >
+              <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${value ? 'left-4' : 'left-0.5'}`} />
+            </button>
+          </div>
+        </div>
+        {description && <p className="text-xs text-text-muted mt-0.5 leading-tight">{description}</p>}
+      </div>
+    )
+  }
+
+  const nameChanged = editingName.trim() !== '' && editingName.trim() !== room.name
+  const goalChanged = editingGoal.trim() !== (room.goal ?? '')
+
+  async function handleSaveName(): Promise<void> {
+    const trimmed = editingName.trim()
+    if (!trimmed || trimmed === room.name) return
+    optimistic(room.id, { name: trimmed })
+    await api.rooms.update(room.id, { name: trimmed })
+    refresh()
+  }
+
+  async function handleSaveQueenNickname(room: Room): Promise<void> {
+    const trimmed = editingQueenNickname.trim().replace(/\s+/g, '')
+    if (!trimmed || trimmed === (room.queenNickname ?? '')) return
+    optimistic(room.id, { queenNickname: trimmed })
+    await api.rooms.update(room.id, { queenNickname: trimmed })
+    refresh()
+  }
+
+  async function handleSaveGoal(): Promise<void> {
+    const trimmed = editingGoal.trim()
+    if (trimmed === (room.goal ?? '')) return
+    optimistic(room.id, { goal: trimmed || null })
+    await api.rooms.update(room.id, { goal: trimmed || null })
+    refresh()
+  }
+
+  async function handleArchiveRoom(): Promise<void> {
+    setArchiveBusy(true)
+    setArchiveError(null)
+    const issues: string[] = []
+    try {
+      // Stop room runtime first so no new jobs are created during archival.
+      try {
+        await api.rooms.stop(room.id)
+      } catch (err) {
+        issues.push(`闭关运行失败：${getErrorMessage(err)}`)
+      }
+
+      // Delete all cloud stations to prevent lingering spend.
+      try {
+        const stations = await api.cloudStations.list(room.id)
+        for (const station of stations) {
+          const stationId = Number((station as Record<string, unknown>).id)
+          if (!Number.isFinite(stationId)) continue
+          try {
+            await api.cloudStations.delete(room.id, stationId)
+          } catch (err) {
+            issues.push(`Station #${stationId}: ${getErrorMessage(err)}`)
+          }
+        }
+      } catch (err) {
+        issues.push(`读取执行站失败：${getErrorMessage(err)}`)
+      }
+
+      // Archive room (server also pauses agents).
+      try {
+        await api.rooms.update(room.id, { status: 'stopped' } as Record<string, unknown>)
+      } catch (err) {
+        issues.push(`归档帮派失败：${getErrorMessage(err)}`)
+      }
+
+      await refresh()
+      if (issues.length > 0) {
+        setArchiveError(issues.join('\n'))
+      }
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
+  return (
+    <div className="p-4">
+      {/* 帮派名称 */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-text-secondary mb-1">帮派名称</label>
+        <div className="flex gap-2 max-w-sm">
+          <input
+            type="text"
+            value={editingName}
+            onChange={e => setEditingName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void handleSaveName() }}
+            onBlur={() => void handleSaveName()}
+            className="w-full px-3 py-2 rounded-lg bg-surface-secondary border border-border-primary text-sm text-text-primary focus:outline-none focus:border-interactive"
+          />
+          {nameChanged && (
+            <button
+              onClick={() => void handleSaveName()}
+              className="px-3 py-2 rounded-lg bg-interactive text-text-invert text-sm font-medium hover:bg-interactive-hover transition-colors"
+            >
+              保存
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Primary Objective */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-text-secondary mb-1">委托目标</label>
+        <textarea
+          value={editingGoal}
+          onChange={e => setEditingGoal(e.target.value)}
+          onBlur={() => void handleSaveGoal()}
+          rows={4}
+          placeholder={OBJECTIVE_PLACEHOLDERS[objectivePlaceholderIdx]}
+          className="w-full px-3 py-2 rounded-lg bg-surface-secondary border border-border-primary text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-interactive resize-none"
+        />
+        {goalChanged && (
+          <button
+            onClick={() => void handleSaveGoal()}
+            className="mt-1 px-3 py-1.5 rounded-lg bg-interactive text-text-invert text-sm font-medium hover:bg-interactive-hover transition-colors"
+          >
+            保存
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="space-y-4">
+          {/* 天机阁 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-text-secondary">天机阁</h3>
+              <button
+                onClick={() => setShowSetupGuide(true)}
+                className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover"
+              >
+                设置指南
+              </button>
+            </div>
+            <div className="bg-surface-secondary shadow-sm rounded-lg p-3 divide-y divide-border-primary">
+
+              {/* Queen model */}
+              {row('模型',
+                <div className="flex flex-col items-end gap-1">
+                  <Select
+                    value={queenModelValue}
+                    onChange={(v) => handleSetQueenModel(room, v)}
+                    options={queenModelOptions}
+                    disabled={isQueenModelBusy || !hasQueenModelLoaded}
+                  />
+                  {queenModelSetupActive && (
+                    <div className="w-full max-w-[260px]">
+                      <div className="flex items-center justify-between text-[11px] text-text-muted mb-1">
+                        <span>{queenModelSetupLabel}</span>
+                        <span>{queenModelSetupPct}% · {elapsedText}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-surface-primary border border-border-primary overflow-hidden">
+                        <div
+                          className="h-full bg-interactive transition-[width] duration-500 ease-out"
+                          style={{ width: `${queenModelSetupPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>,
+                '天机阁使用的模型。可使用 Claude/Codex/MiMo 等本地环境或 API 密钥。'
+              )}
+
+              {row(
+                '推荐路径',
+                <span className={`text-xs font-medium ${recommendedQueenModel ? 'text-status-success' : 'text-status-warning'}`}>
+                  {recommendationLabel}
+                </span>,
+                recommendationHint
+              )}
+
+              <div className="py-2">
+                <p className="text-xs text-text-muted leading-relaxed">
+                  <span className="font-medium text-text-secondary">设置结果：</span>{' '}
+                  订阅模型通常配置最省事；API 模型适合按密钥和用量精确控制成本。
+                </p>
+              </div>
+
+              {activeQueenAuth?.mode === 'api' && (
+                row('API 密钥',
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${activeQueenAuth.ready ? 'text-status-success' : 'text-status-warning'}`}>
+                      {activeQueenAuth.ready
+                        ? activeQueenAuth.hasCredential ? '已保存' : `环境变量（${activeQueenAuth.envVar ?? '已设置'}）`
+                        : '缺失'}
+                    </span>
+                    <button
+                      onClick={() => openApiKeyPrompt(room, activeQueenAuth, 'validate')}
+                      disabled={apiKeyBusyRoomId === room.id}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      测试
+                    </button>
+                    <button
+                      onClick={() => openApiKeyPrompt(room, activeQueenAuth, 'save')}
+                      disabled={apiKeyBusyRoomId === room.id}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {apiKeyBusyRoomId === room.id ? '验证中...' : activeQueenAuth.hasCredential ? '更新' : '设置'}
+                    </button>
+                  </div>
+                )
+              )}
+              {showQueenSubscriptionStatus && (
+                row('状态',
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-xs ${
+                      queenSubscriptionStatus?.installed
+                        ? queenSubscriptionStatus.connected === true
+                          ? 'text-status-success'
+                          : 'text-text-muted'
+                        : 'text-status-warning'
+                    } ${queenSubscriptionStatus == null ? 'animate-pulse' : ''}`}>
+                      {activeQueenAuth.provider === 'claude_subscription' && (
+                        queenSubscriptionStatus == null
+                          ? '正在检查 Claude 状态...'
+                          : queenSubscriptionStatus.installed
+                          ? queenSubscriptionStatus.connected === true
+                            ? 'Claude 已连接'
+                            : queenSubscriptionStatus.connected === false
+                              ? 'Claude 未连接'
+                              : 'Claude 授权状态未知'
+                          : '未安装 Claude CLI'
+                      )}
+                      {activeQueenAuth.provider === 'codex_subscription' && (
+                        queenSubscriptionStatus == null
+                          ? '正在检查 Codex 状态...'
+                          : queenSubscriptionStatus.installed
+                          ? queenSubscriptionStatus.connected === true
+                            ? 'Codex 已连接'
+                            : queenSubscriptionStatus.connected === false
+                              ? 'Codex 未连接'
+                              : 'Codex 授权状态未知'
+                          : '未安装 Codex CLI'
+                      )}
+                    </span>
+                    {queenSubscriptionProvider && !queenSubscriptionStatus?.installed && (
+                      <button
+                        onClick={() => { void handleProviderInstall(room, queenSubscriptionProvider) }}
+                        className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={queenProviderInstallSession?.active || queenProviderInstallBusy}
+                      >
+                        {queenProviderInstallSession?.active ? '安装中...' : '安装'}
+                      </button>
+                    )}
+                    {queenSubscriptionProvider && queenSubscriptionStatus?.installed && (
+                      <>
+                        <button
+                          onClick={() => { void handleProviderConnect(room, queenSubscriptionProvider) }}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={queenProviderAuthSession?.active || queenProviderInstallSession?.active}
+                        >
+                          连接
+                        </button>
+                        <button
+                          onClick={() => { void handleProviderDisconnect(room, queenSubscriptionProvider) }}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover"
+                        >
+                          断开
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              )}
+              {showQueenSubscriptionStatus && queenSubscriptionProvider && queenProviderInstallSession && (
+                row('安装流程',
+                  <div className="w-full max-w-[360px] space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`text-xs ${
+                        queenProviderInstallSession.status === 'completed'
+                          ? 'text-status-success'
+                          : queenProviderInstallSession.status === 'failed' || queenProviderInstallSession.status === 'timeout'
+                            ? 'text-status-error'
+                            : 'text-text-muted'
+                      }`}>
+                        {providerInstallStatusLabel(queenProviderInstallSession.status)}
+                      </span>
+                      {queenProviderInstallSession.active && (
+                        <button
+                          onClick={() => { void handleProviderInstallCancel(room, queenProviderInstallSession.sessionId) }}
+                          disabled={queenProviderInstallBusy}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {queenProviderInstallBusy ? '取消中...' : '取消'}
+                        </button>
+                      )}
+                      {!queenProviderInstallSession.active && (
+                        <button
+                          onClick={() => { void refreshProviderStatus() }}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover"
+                        >
+                          刷新
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-32 overflow-y-auto rounded-lg border border-border-primary bg-surface-primary p-2 font-mono text-[11px] text-text-muted">
+                      {queenProviderInstallRecentLines.length === 0
+                        ? '等待安装输出...'
+                        : queenProviderInstallRecentLines.map((line) => (
+                            <div key={line.id} className="whitespace-pre-wrap break-words">
+                              {line.text}
+                            </div>
+                          ))}
+                    </div>
+                  </div>,
+                  '在运行环境中安装提供商 CLI，并显示进度输出。'
+                )
+              )}
+              {showQueenSubscriptionStatus && queenSubscriptionProvider && queenProviderAuthSession && (
+                row('登录流程',
+                  <div className="w-full max-w-[360px] space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`text-xs ${
+                        queenProviderAuthSession.status === 'completed'
+                          ? 'text-status-success'
+                          : queenProviderAuthSession.status === 'failed' || queenProviderAuthSession.status === 'timeout'
+                            ? 'text-status-error'
+                            : 'text-text-muted'
+                      }`}>
+                        {providerAuthStatusLabel(queenProviderAuthSession.status)}
+                      </span>
+                      {queenProviderAuthSession.active && (
+                        <button
+                          onClick={() => { void handleProviderAuthCancel(room, queenProviderAuthSession.sessionId) }}
+                          disabled={queenProviderAuthBusy}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {queenProviderAuthBusy ? '取消中...' : '取消'}
+                        </button>
+                      )}
+                      {!queenProviderAuthSession.active && (
+                        <button
+                          onClick={() => { void refreshProviderStatus() }}
+                          className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover"
+                        >
+                          刷新
+                        </button>
+                      )}
+                    </div>
+                    {queenProviderAuthSession.deviceCode && (
+                      <div className="text-xs text-text-secondary">
+                        验证码：<code className="px-1 py-0.5 rounded bg-surface-primary border border-border-primary">{queenProviderAuthSession.deviceCode}</code>
+                      </div>
+                    )}
+                    {queenProviderAuthSession.verificationUrl && (
+                      <a
+                        href={queenProviderAuthSession.verificationUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-interactive hover:underline break-all inline-block"
+                      >
+                        打开验证页面
+                      </a>
+                    )}
+                    <div className="max-h-32 overflow-y-auto rounded-lg border border-border-primary bg-surface-primary p-2 font-mono text-[11px] text-text-muted">
+                      {queenProviderAuthRecentLines.length === 0
+                        ? '等待登录输出...'
+                        : queenProviderAuthRecentLines.map((line) => (
+                            <div key={line.id} className="whitespace-pre-wrap break-words">
+                              {line.text}
+                            </div>
+                          ))}
+                    </div>
+                  </div>,
+                  '在运行环境中执行提供商 CLI 登录，并显示设备码输出。'
+                )
+              )}
+              {queenModelFeedback[room.id] && (
+                <div className={`text-xs mt-1 ${
+                  queenModelFeedback[room.id]?.kind === 'success'
+                    ? 'text-status-success'
+                    : queenModelFeedback[room.id]?.kind === 'error'
+                      ? 'text-status-error'
+                      : 'text-text-muted'
+                }`}>
+                  {queenModelFeedback[room.id]?.text}
+                </div>
+              )}
+              {apiKeyFeedback[room.id] && (
+                <div className={`text-xs mt-1 ${
+                  apiKeyFeedback[room.id]?.kind === 'success'
+                    ? 'text-status-success'
+                    : apiKeyFeedback[room.id]?.kind === 'error'
+                      ? 'text-status-error'
+                      : 'text-text-muted'
+                }`}>
+                  {apiKeyFeedback[room.id]?.text}
+                </div>
+              )}
+              {providerFeedback[room.id] && (
+                <div className={`text-xs mt-1 ${
+                  providerFeedback[room.id]?.kind === 'success'
+                    ? 'text-status-success'
+                    : providerFeedback[room.id]?.kind === 'error'
+                      ? 'text-status-error'
+                      : 'text-text-muted'
+                }`}>
+                  {providerFeedback[room.id]?.text}
+                </div>
+              )}
+
+              {/* Sessions */}
+              {row('天机阁并发镖单',
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleChangeMaxTasks(room, -1)}
+                    disabled={room.maxConcurrentTasks <= 1}
+                    className="w-5 h-5 rounded-lg bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-30 text-sm font-medium text-text-secondary"
+                  >-</button>
+                  <span className="w-5 text-center text-sm tabular-nums text-text-primary">{room.maxConcurrentTasks}</span>
+                  <button
+                    onClick={() => handleChangeMaxTasks(room, 1)}
+                    disabled={room.maxConcurrentTasks >= 10}
+                    className="w-5 h-5 rounded-lg bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-30 text-sm font-medium text-text-secondary"
+                  >+</button>
+                </div>,
+                '天机阁可并行推进的镖单数量。数值越高，占用本机资源越多。'
+              )}
+
+              {/* Cycle gap */}
+              {row('循环间隔',
+                <Select
+                  value={String(room.queenCycleGapMs)}
+                  onChange={(v) => handleSetCycleGap(room, Number(v))}
+                  options={[
+                    { value: '10000', label: '10s' },
+                    { value: '30000', label: '30s' },
+                    { value: '60000', label: '1 min' },
+                    { value: '120000', label: '2 min' },
+                    { value: '300000', label: '5 min' },
+                    { value: '600000', label: '10 min' },
+                    { value: '900000', label: '15 min' },
+                    { value: '1800000', label: '30 min' },
+                    { value: '3600000', label: '1 hr' },
+                    { value: '7200000', label: '2 hr' },
+                  ]}
+                />,
+                '天机阁两次工作循环之间的等待时间。间隔越短，用量越高。'
+              )}
+
+              {/* Max turns */}
+              {row('最大回合',
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleSetMaxTurns(room, -1)}
+                    disabled={room.queenMaxTurns <= 1}
+                    className="w-5 h-5 rounded-lg bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-30 text-sm font-medium text-text-secondary"
+                  >-</button>
+                  <span className="w-5 text-center text-sm tabular-nums text-text-primary">{room.queenMaxTurns}</span>
+                  <button
+                    onClick={() => handleSetMaxTurns(room, 1)}
+                    disabled={room.queenMaxTurns >= 50}
+                    className="w-5 h-5 rounded-lg bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-30 text-sm font-medium text-text-secondary"
+                  >+</button>
+                </div>,
+                '每次循环可使用工具的最大轮数，用于限制单次运行的工作量。'
+              )}
+
+              {/* Quiet hours */}
+              <div className="py-2 space-y-2">
+                {toggleRow('安静时段', quietEnabled, () => { void handleToggleQuietHours(room) }, '在指定时间段暂停天机阁循环', quietHoursPending)}
+                {quietEnabled && (
+                  <div className="flex items-center gap-2 pl-0">
+                    <input
+                      type="time"
+                      value={room.queenQuietFrom ?? '22:00'}
+                      onChange={(e) => { void handleSetQuietHours(room, e.target.value, room.queenQuietUntil ?? '08:00') }}
+                      disabled={quietHoursPending}
+                      className="text-sm border border-border-primary rounded-lg px-2.5 py-1.5 bg-surface-primary text-text-secondary"
+                    />
+                    <span className="text-text-muted text-sm">–</span>
+                    <input
+                      type="time"
+                      value={room.queenQuietUntil ?? '08:00'}
+                      onChange={(e) => { void handleSetQuietHours(room, room.queenQuietFrom ?? '22:00', e.target.value) }}
+                      disabled={quietHoursPending}
+                      className="text-sm border border-border-primary rounded-lg px-2.5 py-1.5 bg-surface-primary text-text-secondary"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* 天机阁身份 */}
+              {row('昵称',
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={editingQueenNickname}
+                    onChange={e => setEditingQueenNickname(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void handleSaveQueenNickname(room) }}
+                    onBlur={() => void handleSaveQueenNickname(room)}
+                    maxLength={40}
+                    placeholder="例如 天机阁"
+                    className="w-28 text-sm border border-border-primary rounded-lg px-2.5 py-1.5 bg-surface-primary text-text-primary"
+                  />
+                  {editingQueenNickname.trim() !== (room.queenNickname ?? '') && (
+                    <button
+                      onClick={() => void handleSaveQueenNickname(room)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg bg-interactive text-text-invert font-medium hover:bg-interactive-hover transition-colors"
+                    >保存</button>
+                  )}
+                </div>,
+                '帮派内部展示和交付记录中使用的天机阁名称。'
+              )}
+
+              {/* Room runtime start/stop */}
+              <div className="pt-2 flex gap-2 items-center">
+                {room.status !== 'stopped' && (
+                  room.status === 'active' && !Object.prototype.hasOwnProperty.call(queenRunning, room.id) ? (
+                    <button
+                      disabled
+                      className="text-sm px-2.5 py-1.5 rounded-lg border border-border-primary text-text-muted opacity-70 cursor-not-allowed"
+                    >检查中...</button>
+                  ) : queenRunning[room.id] ? (
+                    <button
+                      onClick={() => { void handleQueenStop(room.id) }}
+                      disabled={queenRunningPending}
+                      className="text-sm px-2.5 py-1.5 rounded-lg border text-orange-600 border-orange-200 hover:border-orange-300 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                    >闭关</button>
+                  ) : (
+                    <button
+                      onClick={() => { void handleQueenStart(room.id) }}
+                      disabled={queenRunningPending}
+                      className="text-sm px-2.5 py-1.5 rounded-lg border text-status-success border-green-200 hover:border-green-300 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                    >出山</button>
+                  )
+                )}
+                {room.status !== 'stopped' && queenRunningPending && <InlineSpinner />}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* 弟子 */}
+          <div>
+            <h3 className="text-sm font-semibold text-text-secondary mb-1">弟子</h3>
+            <div className="bg-surface-secondary shadow-sm rounded-lg p-3">
+              {row('模型',
+                <Select
+                  value={workerModelValue}
+                  onChange={(value) => handleSetWorkerModel(room, value)}
+                  options={workerModelOptions}
+                  disabled={!hasWorkerModelLoaded}
+                />,
+                '选择弟子模型。“跟随天机阁模型”会继承天机阁当前模型；API 模型使用对应密钥。'
+              )}
+            </div>
+          </div>
+
+          {/* 可见性 */}
+          <div>
+            <h3 className="text-sm font-semibold text-text-secondary mb-1">可见性</h3>
+            <div className="bg-surface-secondary shadow-sm rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between text-sm py-1">
+                <div>
+                  <span className="text-text-secondary">本地公开</span>
+                  <p className="text-xs text-text-muted mt-0.5 leading-tight">仅在当前项目内公开委托目标、财气余额和运行动态。</p>
+                </div>
+                <button
+                  onClick={() => { void handleToggleVisibility(room) }}
+                  disabled={visibilityPending}
+                  className={`w-8 h-4 rounded-full transition-colors relative ml-3 flex-shrink-0 ${
+                    room.visibility === 'public' ? 'bg-interactive' : 'bg-surface-tertiary'
+                  } ${visibilityPending ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                    room.visibility === 'public' ? 'left-4' : 'left-0.5'
+                  }`} />
+                </button>
+              </div>
+              {visibilityPending && (
+                <div className="pt-0.5">
+                  <InlineSpinner />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 议事堂决策 */}
+          <div>
+            <h3 className="text-sm font-semibold text-text-secondary mb-1">议事堂决策</h3>
+            <div className="bg-surface-secondary shadow-sm rounded-lg p-3 space-y-2">
+              <p className="text-xs text-text-muted mb-2">控制天机阁无法单独判断时如何组织议事堂。弟子也可以通过本地本地江湖工具调整。</p>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { key: 'open', label: '开放讨论', desc: '直接讨论，过程可见', match: !room.config.sealedBallot && !room.config.voterHealth && room.config.minVoters === 0 },
+                  { key: 'sealed', label: '整理结论', desc: '先讨论，结论后公开', match: room.config.sealedBallot && !room.config.voterHealth && room.config.minVoters === 0 },
+                  { key: 'hardened', label: '严格议事堂', desc: '要求多人参与和健康检查', match: room.config.sealedBallot && room.config.voterHealth && room.config.minVoters >= 2 },
+                ] as const).map(preset => {
+                  const isActive = preset.match
+                  return (
+                    <button
+                      key={preset.key}
+                      onClick={async () => {
+                        await withSwitchPending(`governance:${room.id}`, async () => {
+                          const configUpdate = preset.key === 'open'
+                            ? { sealedBallot: false, voterHealth: false, minVoters: 0 }
+                            : preset.key === 'sealed'
+                              ? { sealedBallot: true, voterHealth: false, minVoters: 0 }
+                              : { sealedBallot: true, voterHealth: true, voterHealthThreshold: 0.5, minVoters: 2 }
+                          optimistic(room.id, { config: { ...room.config, ...configUpdate } })
+                          await api.rooms.update(room.id, { config: { ...room.config, ...configUpdate } })
+                          refresh()
+                        })
+                      }}
+                      disabled={governancePending}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors text-left ${
+                        isActive
+                          ? 'border-interactive bg-interactive-bg text-interactive'
+                          : 'border-border-primary bg-surface-primary text-text-secondary hover:bg-surface-hover'
+                      } ${governancePending ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="font-semibold">{preset.label}</div>
+                      <div className="text-xs opacity-70 mt-0.5">{preset.desc}</div>
+                    </button>
+                  )
+                })}
+              </div>
+              {governancePending && <InlineSpinner />}
+              {!(!room.config.sealedBallot && !room.config.voterHealth && room.config.minVoters === 0) &&
+               !(room.config.sealedBallot && !room.config.voterHealth && room.config.minVoters === 0) &&
+               !(room.config.sealedBallot && room.config.voterHealth && room.config.minVoters >= 2) && (
+                <div className="text-xs text-text-muted italic">当前使用自定义议事堂设置</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 危险操作 */}
+      <div className="mt-6 w-fit">
+        <h3 className="text-sm font-semibold text-status-error mb-2">危险操作</h3>
+        <div className="border border-status-error rounded-lg p-4">
+          <p className="text-sm text-text-secondary mb-1">归档这个帮派</p>
+          <p className="text-xs text-text-muted mb-3">停止天机阁，取消执行站，并从侧边栏隐藏帮派。</p>
+          <button
+            onClick={() => setShowArchiveConfirm(true)}
+            disabled={archiveBusy}
+            className="px-4 py-2 rounded-lg border border-status-error text-status-error text-sm font-medium hover:bg-status-error-bg transition-colors disabled:opacity-50"
+          >
+            {archiveBusy ? '归档中...' : '归档帮派'}
+          </button>
+          {archiveError && (
+            <p className="text-xs text-status-error mt-2 break-words whitespace-pre-line">
+              已归档，但存在问题：{archiveError}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {showSetupGuide && (
+        <RoomSetupGuideModal
+          roomName={room.name}
+          roomId={room.id}
+          currentModel={queenModelValue}
+          claude={providerStatus?.claude ? { installed: providerStatus.claude.installed, connected: providerStatus.claude.connected } : null}
+          codex={providerStatus?.codex ? { installed: providerStatus.codex.installed, connected: providerStatus.codex.connected } : null}
+          queenAuth={activeQueenAuth}
+          providerAuthSessions={providerAuthSessions}
+          providerInstallSessions={providerInstallSessions}
+          onInstall={async (provider) => { await handleProviderInstall(room, provider) }}
+          onConnect={async (provider) => { await handleProviderConnect(room, provider) }}
+          onDisconnect={async (provider) => { await handleProviderDisconnect(room, provider) }}
+          onCancelAuth={async (sessionId) => { await handleProviderAuthCancel(room, sessionId) }}
+          onCancelInstall={async (sessionId) => { await handleProviderInstallCancel(room, sessionId) }}
+          onRefreshProviders={refreshProviderStatus}
+          onApplyModel={async (model) => { await handleSetQueenModel(room, model) }}
+          onSaveApiKey={async (credentialName, key) => {
+            await api.credentials.validate(room.id, credentialName, key)
+            await api.credentials.create(room.id, credentialName, key, 'api_key')
+            const q = await api.rooms.queenStatus(room.id).catch(() => null)
+            if (q) {
+              setQueenAuth(prev => ({ ...prev, [room.id]: q.auth }))
+            }
+          }}
+          onClose={() => setShowSetupGuide(false)}
+        />
+      )}
+
+      {apiKeyPrompt && (
+        <PromptDialog
+          title={`输入 ${apiKeyPrompt.auth.credentialName === 'openai_api_key' ? 'OpenAI' : apiKeyPrompt.auth.credentialName === 'gemini_api_key' ? 'Gemini' : apiKeyPrompt.auth.credentialName === 'mimo_api_key' ? 'MiMo' : 'Anthropic'} API 密钥${apiKeyPrompt.mode === 'save' ? '并保存' : '用于测试'}：`}
+          placeholder="sk-..."
+          type="password"
+          confirmLabel={apiKeyBusyRoomId === apiKeyPrompt.roomId ? '验证中...' : apiKeyPrompt.mode === 'save' ? '验证并保存' : '验证'}
+          onConfirm={submitApiKey}
+          onCancel={() => {
+            if (apiKeyBusyRoomId === apiKeyPrompt.roomId) return
+            setApiKeyPrompt(null)
+          }}
+        />
+      )}
+
+      {showArchiveConfirm && (
+        <ConfirmDialog
+          title={`归档「${room.name}」？`}
+          message="这会停止天机阁，取消执行站，并隐藏帮派。"
+          confirmLabel="归档帮派"
+          danger
+          onConfirm={() => {
+            setShowArchiveConfirm(false)
+            void handleArchiveRoom()
+          }}
+          onCancel={() => setShowArchiveConfirm(false)}
+        />
+      )}
+
+    </div>
+  )
+}

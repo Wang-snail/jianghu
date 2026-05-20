@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "quoroom-ai/maintainers"
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    allow:
+      # Allow both direct and indirect updates for production dependencies
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    ignore:
+      # Ignore updates for these packages until we're ready to upgrade
+      - dependency-name: "esbuild"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Group all react-related updates together
+      react-dependencies:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      # Group all testing updates together
+      test-dependencies:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "playwright"
+          - "@playwright/test"
+      # Group all typescript-related updates
+      typescript-dependencies:
+        patterns:
+          - "typescript"
+          - "@types/*"
