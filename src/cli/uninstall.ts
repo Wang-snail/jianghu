@@ -7,8 +7,8 @@ import { createInterface } from 'readline'
 const IS_WIN = process.platform === 'win32'
 
 const UNIX_PATHS = {
-  lib: '/usr/local/lib/zuzu',
-  bin: '/usr/local/bin/zuzu',
+  lib: '/usr/local/lib/jianghu',
+  bin: '/usr/local/bin/jianghu',
   data: join(homedir(), '.jianghu'),
   logs: join(homedir(), 'Library', 'Logs', '江湖'),
 }
@@ -81,7 +81,7 @@ function uninstallWindows(): void {
 
 function uninstallUnix(): void {
   // Stop server
-  try { execSync('pkill -f "zuzu serve"', { stdio: 'ignore' }) } catch {}
+  try { execSync('pkill -f "jianghu serve"', { stdio: 'ignore' }) } catch {}
 
   // Remove data & logs (no sudo needed)
   for (const dir of [UNIX_PATHS.data, UNIX_PATHS.logs]) {
@@ -94,12 +94,12 @@ function uninstallUnix(): void {
   // Remove binary and lib (needs sudo)
   const needsSudo = existsSync(UNIX_PATHS.lib) || existsSync(UNIX_PATHS.bin)
   if (needsSudo) {
-    console.log('\nRemoving /usr/local/lib/zuzu and /usr/local/bin/zuzu (requires sudo)...')
+    console.log('\nRemoving /usr/local/lib/jianghu and /usr/local/bin/jianghu (requires sudo)...')
     try {
       execSync(`sudo rm -rf ${UNIX_PATHS.lib} ${UNIX_PATHS.bin}`, { stdio: 'inherit' })
       console.log('Removed binaries.')
     } catch {
-      console.error('Failed to remove binaries. Run manually:\n  sudo rm -rf /usr/local/lib/zuzu /usr/local/bin/zuzu')
+      console.error('Failed to remove binaries. Run manually:\n  sudo rm -rf /usr/local/lib/jianghu /usr/local/bin/jianghu')
     }
   }
 

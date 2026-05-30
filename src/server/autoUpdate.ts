@@ -1,8 +1,8 @@
 /**
  * Auto-update system — downloads lightweight update bundles (JS + UI only)
- * to ~/.zuzu/app/ so the wrapper script can pick them up on next restart.
+ * to ~/.jianghu/app/ so the wrapper script can pick them up on next restart.
  *
- * The bundled native modules in /usr/local/lib/zuzu/lib/node_modules/
+ * The bundled native modules in /usr/local/lib/jianghu/lib/node_modules/
  * are reused via NODE_PATH — only JS code and UI assets are updated.
  */
 
@@ -13,11 +13,13 @@ import https from 'node:https'
 import http from 'node:http'
 import { createHash } from 'node:crypto'
 import { pipeline } from 'node:stream/promises'
+import { isLegacyUiDir } from '../shared/legacy-user-app'
 
 // ── Paths ──────────────────────────────────────────────────────
 
-const USER_APP_DIR = path.join(homedir(), '.zuzu', 'app')
-const STAGING_DIR = path.join(homedir(), '.zuzu', 'app-staging')
+const USER_APP_DIR = path.join(homedir(), '.jianghu', 'app')
+const USER_UI_DIR = path.join(USER_APP_DIR, 'ui')
+const STAGING_DIR = path.join(homedir(), '.jianghu', 'app-staging')
 const BOOT_MARKER = path.join(USER_APP_DIR, '.booting')
 const CRASH_COUNT_FILE = path.join(USER_APP_DIR, '.crash_count')
 const VERSION_FILE = path.join(USER_APP_DIR, 'version.json')
@@ -61,7 +63,16 @@ export function getAutoUpdateStatus(): AutoUpdateStatus {
  * If the server survives 30s, clears the marker + crash count.
  */
 export function initBootHealthCheck(): void {
-  // Legacy local cache cleanup: unversioned ~/.zuzu/app is invalid and can
+  // Older auto-update bundles can have a higher version number while still
+  // containing the pre-江湖 UI. Remove them before static dir selection.
+  if (fs.existsSync(USER_APP_DIR) && isLegacyUiDir(USER_UI_DIR)) {
+    try {
+      console.error('[auto-update] Removing legacy user app cache with old UI')
+      fs.rmSync(USER_APP_DIR, { recursive: true, force: true })
+    } catch { /* ignore */ }
+  }
+
+  // Legacy local cache cleanup: unversioned ~/.jianghu/app is invalid and can
   // serve stale UI after upgrades.
   if (fs.existsSync(USER_APP_DIR) && !fs.existsSync(VERSION_FILE)) {
     try {
@@ -71,7 +82,7 @@ export function initBootHealthCheck(): void {
   }
 
   // Clean stale user-space updates: if user installed a full .pkg that is
-  // equal or newer than the user-space version, delete ~/.zuzu/app/
+  // equal or newer than the user-space version, delete ~/.jianghu/app/
   // so the wrapper script uses the bundled code and future auto-updates
   // work correctly.
   if (fs.existsSync(VERSION_FILE)) {
@@ -105,7 +116,7 @@ function followRedirects(url: string, maxRedirects = 5): Promise<http.IncomingMe
     if (maxRedirects <= 0) return reject(new Error('Too many redirects'))
     const parsed = new URL(url)
     const mod = parsed.protocol === 'https:' ? https : http
-    const req = mod.get(url, { headers: { 'User-Agent': 'zuzu-auto-updater/1.0' } }, (res) => {
+    const req = mod.get(url, { headers: { 'User-Agent': 'jianghu-auto-updater/1.0' } }, (res) => {
       if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) && res.headers.location) {
         res.resume()
         followRedirects(res.headers.location, maxRedirects - 1).then(resolve, reject)

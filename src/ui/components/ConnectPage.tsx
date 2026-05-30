@@ -15,7 +15,8 @@ interface ConnectPageProps {
   onRetry: () => void
 }
 
-const RELEASES_PAGE = 'https://github.com/zuzu-ai/room/releases'
+const REPO_URL = 'https://github.com/Wang-snail/jianghu'
+const RELEASES_PAGE = `${REPO_URL}/releases`
 
 const PLATFORM_INFO: Record<string, { label: string; note: string; steps: string[] }> = {
   mac: {
@@ -31,7 +32,7 @@ const PLATFORM_INFO: Record<string, { label: string; note: string; steps: string
   linux: {
     label: '下载 Linux 版本',
     note: 'x64',
-    steps: ['安装: sudo dpkg -i zuzu_*.deb'],
+    steps: ['从仓库下载发布包或按源码方式运行'],
   },
 }
 
@@ -45,7 +46,7 @@ function useReleaseAssets(): { assets: ReleaseAssets; releaseUrl: string } {
   const [releaseUrl, setReleaseUrl] = useState<string>(RELEASES_PAGE)
 
   useEffect(() => {
-    fetch('https://api.github.com/repos/zuzu-ai/room/releases?per_page=20')
+    fetch('https://api.github.com/repos/Wang-snail/jianghu/releases?per_page=20')
       .then(r => r.ok ? r.json() as Promise<GithubRelease[]> : null)
       .then((releases) => {
         if (!releases || releases.length === 0) return
@@ -70,14 +71,14 @@ export function ConnectPage({ port, onRetry }: ConnectPageProps): React.JSX.Elem
   const { assets, releaseUrl } = useReleaseAssets()
 
   function handleRetry(): void {
-    storageSet('zuzu_port', editPort)
+    storageSet('jianghu_port', editPort)
     setRestartError(null)
     setRetrying(true)
     onRetry()
   }
 
   async function handleRestart(): Promise<void> {
-    storageSet('zuzu_port', editPort)
+    storageSet('jianghu_port', editPort)
     setRestartError(null)
     setRestarting(true)
     try {
@@ -92,7 +93,7 @@ export function ConnectPage({ port, onRetry }: ConnectPageProps): React.JSX.Elem
       }, 1800)
     } catch {
       setRestarting(false)
-      setRestartError('无法触发重启。请手动启动服务器：zuzu serve')
+      setRestartError('无法触发重启。请手动启动服务器：jianghu serve')
     }
   }
 
@@ -157,7 +158,7 @@ export function ConnectPage({ port, onRetry }: ConnectPageProps): React.JSX.Elem
             ))}
             <div className="flex items-start gap-2">
               <span className="text-xs text-text-muted font-mono mt-0.5 shrink-0">{info.steps.length + 1}.</span>
-              <span className="text-sm text-text-secondary">Run <code className="text-xs bg-surface-tertiary px-1.5 py-0.5 rounded font-mono text-text-primary">zuzu serve</code></span>
+              <span className="text-sm text-text-secondary">Run <code className="text-xs bg-surface-tertiary px-1.5 py-0.5 rounded font-mono text-text-primary">jianghu serve</code></span>
             </div>
             <div className="flex items-start gap-2">
               <span className="text-xs text-text-muted font-mono mt-0.5 shrink-0">{info.steps.length + 2}.</span>
@@ -177,12 +178,12 @@ export function ConnectPage({ port, onRetry }: ConnectPageProps): React.JSX.Elem
           {showDev && (
             <div className="mt-2 bg-surface-secondary rounded-lg p-4 text-left space-y-2 shadow-sm">
               <div className="flex items-start gap-2">
-                <span className="text-xs text-text-muted shrink-0">npm:</span>
-                <code className="text-xs bg-surface-tertiary px-2 py-1 rounded text-text-primary font-mono">npm install -g zuzu && zuzu serve</code>
+                <span className="text-xs text-text-muted shrink-0">源码:</span>
+                <code className="text-xs bg-surface-tertiary px-2 py-1 rounded text-text-primary font-mono">git clone {REPO_URL} &amp;&amp; cd jianghu &amp;&amp; npm install &amp;&amp; npm run dev:room</code>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-xs text-text-muted shrink-0">brew:</span>
-                <code className="text-xs bg-surface-tertiary px-2 py-1 rounded text-text-primary font-mono">brew install zuzu-ai/zuzu/zuzu</code>
+                <span className="text-xs text-text-muted shrink-0">本地:</span>
+                <code className="text-xs bg-surface-tertiary px-2 py-1 rounded text-text-primary font-mono">npm run dev:room</code>
               </div>
             </div>
           )}
@@ -224,19 +225,17 @@ export function ConnectPage({ port, onRetry }: ConnectPageProps): React.JSX.Elem
 
         {/* Links */}
         <div className="flex items-center justify-center gap-3">
-          <a href="https://github.com/zuzu-ai/room" target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">GitHub</a>
+          <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">GitHub</a>
           <span className="text-border-primary">|</span>
-          <a href="https://github.com/zuzu-ai/room/releases" target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">所有版本</a>
+          <a href={RELEASES_PAGE} target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">所有版本</a>
           <span className="text-border-primary">|</span>
-          <a href="https://github.com/zuzu-ai/room/issues/new" target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">报告问题</a>
-          <span className="text-border-primary">|</span>
-          <a href="https://x.com/VTrofimchuk" target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">开发者</a>
+          <a href={`${REPO_URL}/issues/new`} target="_blank" rel="noopener noreferrer" className="text-xs text-text-muted hover:text-text-secondary">报告问题</a>
           <span className="text-border-primary">|</span>
           <button
-            onClick={() => window.open('mailto:hello@email.zuzu.ai?subject=Connection issue&body=I am having trouble connecting to 江湖.')}
+            onClick={() => window.open(`${REPO_URL}/issues/new`)}
             className="text-xs text-text-muted hover:text-text-secondary"
           >
-            发邮件给开发者
+            反馈连接问题
           </button>
         </div>
 

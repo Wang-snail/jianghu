@@ -1672,7 +1672,7 @@ describe('escalations', () => {
     const activity = q.getRoomActivity(db, roomId, 20)
     expect(activity.some(a =>
       a.eventType === 'worker'
-      && a.summary.includes(`Worker #${workerId} sent message to worker #${queenId}`)
+      && a.summary.includes(`弟子 #${workerId} 向弟子 #${queenId} 发出消息`)
       && (a.details ?? '').includes('Timeline visibility check')
     )).toBe(true)
   })
@@ -1686,6 +1686,32 @@ describe('escalations', () => {
       && a.summary.includes(`Keeper replied to worker #${workerId}`)
       && (a.details ?? '').includes('Approved, continue')
     )).toBe(true)
+  })
+
+  it('stores training adjustments for escalation records', () => {
+    const esc = q.createEscalation(db, roomId, null, '弟子训练：Worker\nUse a clearer output format.', workerId)
+    const adjustment = q.upsertTrainingAdjustment(db, roomId, esc.id, workerId, 'training', 65, '正在吸收格式要求')
+
+    expect(adjustment.escalationId).toBe(esc.id)
+    expect(adjustment.workerId).toBe(workerId)
+    expect(adjustment.status).toBe('training')
+    expect(adjustment.progress).toBe(65)
+    expect(adjustment.note).toBe('正在吸收格式要求')
+    expect(q.listTrainingAdjustments(db, roomId)).toHaveLength(1)
+  })
+
+  it('updates existing training adjustment instead of duplicating it', () => {
+    const esc = q.createEscalation(db, roomId, null, '弟子训练：Worker\nImprove evidence handoff.', workerId)
+    q.upsertTrainingAdjustment(db, roomId, esc.id, workerId, 'training', 40, '初训')
+    const configJson = JSON.stringify({ schema: 'jianghu.training.worker.v1', roleDefinition: { roleName: '证据弟子' } })
+    const updated = q.upsertTrainingAdjustment(db, roomId, esc.id, workerId, 'absorbed', 100, '已吸收', configJson)
+
+    const all = q.listTrainingAdjustments(db, roomId)
+    expect(all).toHaveLength(1)
+    expect(updated.status).toBe('absorbed')
+    expect(updated.progress).toBe(100)
+    expect(updated.configJson).toBe(configJson)
+    expect(all[0].note).toBe('已吸收')
   })
 })
 
@@ -1727,14 +1753,12 @@ describe('pickQueenNickname', () => {
     expect(name2.toLowerCase()).not.toBe(name1.toLowerCase())
   })
 
-  it('recycles names when all 40 are taken', () => {
-    // Insert 40 rooms with all 40 woman names directly
+  it('recycles names when all default gang leader nicknames are taken', () => {
+    // Insert rooms with all default gang leader nicknames directly.
     const allNames = [
-      'Alice','Anna','Belle','Cara','Dana','Elena','Fiona','Grace',
-      'Hana','Iris','Julia','Kate','Lena','Luna','Mara','Maya',
-      'Nina','Nora','Olga','Petra','Rose','Sara','Sofia','Tara',
-      'Uma','Vera','Wren','Zara','Zoe','Ava','Cleo','Dara',
-      'Emmy','Gaia','Hera','Ines','Jada','Kara','Lila','Mina',
+      '帮主一号', '帮主二号', '帮主三号', '帮主四号', '帮主五号',
+      '帮主六号', '帮主七号', '帮主八号', '帮主九号', '帮主十号',
+      '目标负责人', '交付负责人', '运营负责人', '项目负责人', '执行负责人',
     ]
     for (const n of allNames) {
       db.prepare('INSERT INTO rooms (name, config, queen_nickname) VALUES (?, ?, ?)').run(n, '{}', n)

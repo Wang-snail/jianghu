@@ -10,7 +10,6 @@ import { registerGoalTools } from './tools/goals'
 import { registerSelfModTools } from './tools/self-mod'
 import { registerSkillTools } from './tools/skills'
 import { registerWalletTools } from './tools/wallet'
-import { registerStationTools } from './tools/station'
 import { registerIdentityTools } from './tools/identity'
 import { registerInboxTools } from './tools/inbox'
 import { registerCredentialTools } from './tools/credentials'
@@ -18,6 +17,7 @@ import { registerResourceTools } from './tools/resources'
 import { registerInviteTools } from './tools/invite'
 import { registerBrowserTools } from './tools/browser'
 import { registerWipTools } from './tools/wip'
+import { registerWebTools } from './tools/web'
 import { closeMcpDatabase } from './db'
 import { closeBrowser } from '../shared/web-tools'
 
@@ -39,7 +39,6 @@ async function main(): Promise<void> {
   registerSelfModTools(server)
   registerSkillTools(server)
   registerWalletTools(server)
-  registerStationTools(server)
   registerIdentityTools(server)
   registerInboxTools(server)
   registerCredentialTools(server)
@@ -47,6 +46,7 @@ async function main(): Promise<void> {
   registerInviteTools(server)
   registerBrowserTools(server)
   registerWipTools(server)
+  registerWebTools(server)
 
   // Clean up database and browser on process exit
   const cleanup = (): void => {

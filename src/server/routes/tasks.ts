@@ -9,10 +9,13 @@ import { isAssignableWorker } from '../../shared/worker-roles'
 
 function toTaskListItem(task: Task): Task {
   const prompt = task.prompt.length > 500 ? `${task.prompt.slice(0, 500)}...` : task.prompt
+  const lastResult = task.lastResult && task.lastResult.length > 1200
+    ? `${task.lastResult.slice(0, 1200)}...`
+    : task.lastResult
   return {
     ...task,
     prompt,
-    lastResult: null,
+    lastResult,
     learnedContext: null,
   }
 }
@@ -53,7 +56,7 @@ function validateWorkerAssignment(
   }
 
   if (!isAssignableWorker(worker, room?.queenWorkerId ?? null)) {
-    return { error: { status: 400, error: '天机阁角色只负责调度，不能被分派为镖单执行弟子。' } }
+    return { error: { status: 400, error: '帮主只负责调度，不能被分派为镖单执行弟子。' } }
   }
 
   return { workerId }

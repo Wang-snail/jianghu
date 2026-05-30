@@ -8,7 +8,7 @@ import { initCloudSync } from '../cloud'
 import { getRoomCloudId, fetchReferredRooms, type ReferredRoom } from '../../shared/cloud-sync'
 import { QUEEN_DEFAULTS_BY_PLAN, CHATGPT_DEFAULTS_BY_PLAN, type ClaudePlan, type ChatGptPlan } from '../../shared/constants'
 import type { ActivityEventType, EscalationStatus } from '../../shared/types'
-import { getModelAuthStatus } from '../../shared/model-provider'
+import { getGlobalModel, getModelAuthStatus, resolveWorkerExecutionModel } from '../../shared/model-provider'
 import { stopRoomRuntime } from '../runtime'
 
 function parseLimit(raw: string | undefined, fallback: number, max: number): number {
@@ -139,7 +139,7 @@ export function registerRoomRoutes(router: Router): void {
     })
 
     // Apply plan-aware defaults for queen activity limits
-    const globalQueenModel = queries.getSetting(ctx.db, 'queen_model')
+    const globalQueenModel = getGlobalModel(ctx.db)
     let planDefaults: { queenCycleGapMs: number; queenMaxTurns: number }
     if (globalQueenModel === 'codex') {
       const raw = queries.getSetting(ctx.db, 'chatgpt_plan') ?? ''
@@ -289,9 +289,10 @@ export function registerRoomRoutes(router: Router): void {
     }
     queries.updateRoom(ctx.db, roomId, updates)
 
-    // Sync queen worker name when room is renamed
+    // Sync the gang leader worker name when room is renamed. The column name is
+    // legacy compatibility; user-facing semantics are "帮主", not "天机阁".
     if (updates.name !== undefined && room.queenWorkerId) {
-      queries.updateWorker(ctx.db, room.queenWorkerId, { name: `${updates.name} Queen` })
+      queries.updateWorker(ctx.db, room.queenWorkerId, { name: `${updates.name} 帮主` })
     }
 
     // Sync root goal when objective changes
@@ -345,7 +346,7 @@ export function registerRoomRoutes(router: Router): void {
     const room = queries.getRoom(ctx.db, roomId)
     if (!room) return { status: 404, error: 'Room not found' }
     if (room.status === 'stopped') return { status: 400, error: 'Room is stopped' }
-    if (!room.queenWorkerId) return { status: 400, error: 'No queen worker' }
+    if (!room.queenWorkerId) return { status: 400, error: 'No gang leader worker' }
 
     if (room.status !== 'active') {
       queries.updateRoom(ctx.db, roomId, { status: 'active' })
@@ -398,14 +399,14 @@ export function registerRoomRoutes(router: Router): void {
     }
   })
 
-  // Queen agent control
+  // Legacy gang leader control endpoint.
   router.get('/api/rooms/:id/queen', async (ctx) => {
     const roomId = Number(ctx.params.id)
     const room = queries.getRoom(ctx.db, roomId)
     if (!room) return { status: 404, error: 'Room not found' }
-    if (!room.queenWorkerId) return { status: 404, error: 'No queen worker' }
+    if (!room.queenWorkerId) return { status: 404, error: 'No gang leader worker' }
     const worker = queries.getWorker(ctx.db, room.queenWorkerId)
-    const model = worker?.model ?? room.workerModel ?? null
+    const model = worker ? resolveWorkerExecutionModel(ctx.db, roomId, worker) : null
     const auth = await getModelAuthStatus(ctx.db, roomId, model)
     return {
       data: {
@@ -442,7 +443,7 @@ export function registerRoomRoutes(router: Router): void {
     // Include model mode so UI knows if tokens are tracked
     const room = queries.getRoom(ctx.db, roomId)
     const queenWorker = room?.queenWorkerId ? queries.getWorker(ctx.db, room.queenWorkerId) : null
-    const model = queenWorker?.model ?? room?.workerModel ?? null
+    const model = room && queenWorker ? resolveWorkerExecutionModel(ctx.db, roomId, queenWorker) : null
     const isApiModel = !!model && (model.startsWith('mimo') || model.startsWith('openai') || model.startsWith('anthropic') || model.startsWith('claude-api'))
     return { data: { total, today, isApiModel } }
   })

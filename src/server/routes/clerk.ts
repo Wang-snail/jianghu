@@ -8,10 +8,12 @@ import {
   autoConfigureClerkModel,
   executeClerkWithFallback,
   getClerkApiAuth,
+  isSensitiveProviderError,
   syncProjectDocsMemory,
 } from '../clerk-profile'
 import { insertClerkMessageAndEmit } from '../clerk-message-events'
 import { DEFAULT_CLERK_MODEL } from '../../shared/clerk-profile-config'
+import { getGlobalModel, setGlobalModel } from '../../shared/model-provider'
 
 const VALIDATION_TIMEOUT_MS = 8000
 const CLERK_RECENT_LOG_LIMIT = 120
@@ -329,6 +331,128 @@ function buildClerkContext(db: Database.Database, projectDocsSnapshot?: string):
   return parts.join('\n')
 }
 
+function hasCreateGangIntent(message: string): boolean {
+  return /(?:新建|创建|成立|开|建)(?:一个|一支|个|支|临时)?帮派/.test(message)
+    || /帮派.*(?:新建|创建|成立)/.test(message)
+    || extractNamedGangName(message) != null
+}
+
+function sanitizeNamedGangName(value: string): string | null {
+  const cleaned = value
+    .replace(/\s+/g, '')
+    .replace(/^[，。,.；;：:！!？?、]+|[，。,.；;：:！!？?、]+$/g, '')
+    .trim()
+  if (cleaned.length < 2 || cleaned === '帮派') return null
+  if (!cleaned.endsWith('帮')) return null
+  if (/^(?:帮我|请帮|帮忙|帮)$/u.test(cleaned)) return null
+  return clipText(cleaned, 40)
+}
+
+function extractNamedGangName(message: string): string | null {
+  const patterns = [
+    /(?:新建|创建|成立|建立|开|建)(?:一个|一支|个|支|临时)?\s*([^，。,.；;：:！!？?、\n]{2,40}?帮)(?=$|[\s，。,.；;：:！!？?、])/u,
+    /([^，。,.；;：:！!？?、\n]{2,40}?帮)(?:\s*)(?:新建|创建|成立|建立)/u,
+  ]
+  for (const pattern of patterns) {
+    const match = message.match(pattern)
+    const name = match?.[1] ? sanitizeNamedGangName(match[1]) : null
+    if (name) return name
+  }
+  return null
+}
+
+function extractGangObjective(message: string): string | null {
+  const namedGangName = extractNamedGangName(message)
+  if (namedGangName) {
+    const nameIndex = message.indexOf(namedGangName)
+    const remaining = nameIndex >= 0
+      ? message.slice(nameIndex + namedGangName.length)
+      : message.replace(namedGangName, '')
+    const cleaned = remaining
+      .replace(/^[\s，。,.；;：:！!？?、]*(?:用于|用来|为了|目标是|委托是|目标为|委托为|去|做|进行|负责)?[\s，。,.；;：:！!？?、]*/u, '')
+      .trim()
+    if (cleaned.length >= 4) return clipText(cleaned, 260)
+    return `围绕「${namedGangName.replace(/帮$/u, '')}」开展分析、拆解、分工和交付。`
+  }
+
+  let text = message
+    .replace(/^[\s，。,.]*(?:请|帮我|麻烦你|我要|我想|需要|给我|帮忙)?[\s，。,.]*/u, '')
+    .replace(/(?:新建|创建|成立|开|建)(?:一个|一支|个|支|临时)?帮派/u, '')
+    .replace(/帮派.*(?:新建|创建|成立)/u, '')
+    .replace(/^[\s，。,.]*(?:用于|用来|为了|目标是|委托是|目标为|委托为|去|做|进行|负责)[\s，。,.]*/u, '')
+    .trim()
+
+  text = text.replace(/^[：:，。,.；;\s]+/u, '').trim()
+  if (text.length >= 4) return clipText(text, 220)
+
+  const fallback = message
+    .replace(/(?:新建|创建|成立|开|建|帮派|一个|一支|临时|用于|用来|为了|目标是|委托是|做|进行|负责)/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return fallback.length >= 4 ? clipText(fallback, 220) : null
+}
+
+function uniqueGangName(base: string, existingNames: Set<string>): string {
+  const normalized = base.trim() || '新委托帮'
+  if (!existingNames.has(normalized.toLowerCase())) return normalized
+  for (let i = 2; i <= 9999; i++) {
+    const candidate = `${normalized}${i}`
+    if (!existingNames.has(candidate.toLowerCase())) return candidate
+  }
+  return `${normalized}${Date.now()}`
+}
+
+function buildGangNameFromObjective(goal: string, db: Database.Database): string {
+  const existingNames = new Set(queries.listRooms(db).map((room) => room.name.toLowerCase()))
+  const compact = goal.replace(/\s+/g, '')
+  let base = '新委托帮'
+
+  if (/亚马逊|Amazon/i.test(compact) && /市场|分析|机会/.test(compact)) {
+    base = '亚马逊市场分析帮'
+  } else if (/市场/.test(compact) && /分析|调研|机会/.test(compact)) {
+    base = '市场分析帮'
+  } else if (/竞品|竞争/.test(compact)) {
+    base = '竞品分析帮'
+  } else if (/产品|新品/.test(compact) && /分析|机会|评估/.test(compact)) {
+    base = '产品评估帮'
+  } else if (/内容|文案|发帖|发布/.test(compact)) {
+    base = '内容策划帮'
+  } else {
+    const cleaned = compact
+      .replace(/[，。,.；;：:！!？?、]/g, '')
+      .replace(/(?:注意|需要|要求|安排|弟子|分工序|分工|流程|用于|用来|为了|目标|委托|分析|完成|处理)/g, '')
+      .slice(0, 10)
+    if (cleaned.length >= 2) base = `${cleaned}帮`
+  }
+
+  return uniqueGangName(base, existingNames)
+}
+
+async function handleDeterministicClerkAction(db: Database.Database, message: string): Promise<string | null> {
+  if (!hasCreateGangIntent(message)) return null
+
+  const goal = extractGangObjective(message)
+  if (!goal) {
+    return '可以创建帮派。请先告诉我这支帮派要完成什么委托目标，比如“分析亚马逊某个品类是否值得做”。'
+  }
+
+  const existingNames = new Set(queries.listRooms(db).map((room) => room.name.toLowerCase()))
+  const explicitName = extractNamedGangName(message)
+  const name = explicitName
+    ? uniqueGangName(explicitName, existingNames)
+    : buildGangNameFromObjective(goal, db)
+  const result = await executeClerkTool(db, 'company_create_room', { name, goal })
+  if (result.isError) {
+    return `这支帮派还没创建成功：${result.content.replace(/^Error:\s*/i, '')}`
+  }
+
+  return [
+    `已创建「${name}」。`,
+    `委托目标：${goal}`,
+    '帮主启动工序已建立：会先拆目标和验收标准，再做人员规划、弟子培训、协作流程和最小试运行；你可以在江湖纵览和帮主管理处看筹备与执行状态。'
+  ].join('\n')
+}
+
 function getCommentaryHoldCount(db: Database.Database): number {
   const raw = queries.getSetting(db, CLERK_COMMENTARY_HOLD_COUNT_KEY) ?? '0'
   const parsed = Number.parseInt(raw, 10)
@@ -380,10 +504,13 @@ export async function runClerkAssistantTurn(
   try {
     // Ensure clerk worker exists
     const clerk = queries.ensureClerkWorker(db)
-    let model = queries.getSetting(db, 'clerk_model') || clerk.model
+    let model = getGlobalModel(db) || clerk.model
     if (!model) {
       const detected = autoConfigureClerkModel(db)
-      if (detected) model = detected
+      if (detected) {
+        setGlobalModel(db, detected)
+        model = detected
+      }
     }
     model = model || DEFAULT_CLERK_MODEL
 
@@ -513,8 +640,26 @@ export function registerClerkRoutes(router: Router): void {
       return { status: 400, error: 'message must not be empty' }
     }
 
+    const deterministicResponse = await handleDeterministicClerkAction(ctx.db, message)
+    if (deterministicResponse) {
+      insertClerkMessageAndEmit(ctx.db, 'user', message, 'assistant')
+      queries.setSetting(ctx.db, 'clerk_last_user_message_at', new Date().toISOString())
+      eventBus.emit('clerk', 'clerk:user_message', { timestamp: Date.now() })
+      insertClerkMessageAndEmit(ctx.db, 'assistant', deterministicResponse, 'assistant')
+      queries.setSetting(ctx.db, CLERK_LAST_ASSISTANT_REPLY_AT_KEY, new Date().toISOString())
+      eventBus.emit('clerk', 'clerk:assistant_reply', { timestamp: Date.now() })
+      const messages = queries.listClerkMessages(ctx.db)
+      return { data: { response: deterministicResponse, messages } }
+    }
+
     const turn = await runClerkAssistantTurn(ctx.db, message)
-    if (!turn.ok) return { status: turn.statusCode, error: turn.error ?? 'Clerk execution failed' }
+    if (!turn.ok) {
+      const fallbackError = '天机阁暂时无法调用当前模型，已保留本地判断能力。'
+      return {
+        status: turn.statusCode,
+        error: isSensitiveProviderError(turn.error) ? fallbackError : (turn.error ?? fallbackError)
+      }
+    }
 
     const messages = queries.listClerkMessages(ctx.db)
     return { data: { response: turn.response ?? 'No response', messages } }
@@ -529,17 +674,14 @@ export function registerClerkRoutes(router: Router): void {
   // Get clerk status
   router.get('/api/clerk/status', (ctx) => {
     const clerkWorkerId = queries.getSetting(ctx.db, 'clerk_worker_id')
-    let model = queries.getSetting(ctx.db, 'clerk_model')
+    let model = getGlobalModel(ctx.db)
 
     // Auto-configure: if no model set, detect best available provider and persist
     let autoConfigured = false
     if (!model) {
       const detected = autoConfigureClerkModel(ctx.db)
       if (detected) {
-        queries.setSetting(ctx.db, 'clerk_model', detected)
-        queries.setSetting(ctx.db, 'queen_model', detected)
-        const clerk = queries.ensureClerkWorker(ctx.db)
-        queries.updateWorker(ctx.db, clerk.id, { model: detected })
+        setGlobalModel(ctx.db, detected)
         model = detected
         autoConfigured = true
       }
@@ -592,12 +734,7 @@ export function registerClerkRoutes(router: Router): void {
 
     if (body.model !== undefined) {
       const model = String(body.model)
-      queries.setSetting(ctx.db, 'clerk_model', model)
-      // Clerk model is also the global default queen model for new rooms.
-      queries.setSetting(ctx.db, 'queen_model', model)
-      // Ensure clerk worker exists and update its model
-      const clerk = queries.ensureClerkWorker(ctx.db)
-      queries.updateWorker(ctx.db, clerk.id, { model })
+      setGlobalModel(ctx.db, model)
     }
 
     if (body.commentaryEnabled !== undefined) {
@@ -615,7 +752,7 @@ export function registerClerkRoutes(router: Router): void {
 
     return {
       data: {
-        model: queries.getSetting(ctx.db, 'clerk_model') || null,
+        model: getGlobalModel(ctx.db),
         commentaryEnabled: queries.getSetting(ctx.db, 'clerk_commentary_enabled') !== 'false',
         commentaryMode: getCommentaryMode(ctx.db),
         commentaryPace: getCommentaryPace(ctx.db),

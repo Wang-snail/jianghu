@@ -84,4 +84,16 @@ describe('startServer static dir selection', () => {
 
     expect(resolved).toBe(join(userAppDir, 'ui'))
   })
+
+  it('ignores ready user UI when it contains legacy branding', async () => {
+    readyVersion = '999.0.0'
+    mkdirSync(join(userAppDir, 'ui'), { recursive: true })
+    writeFileSync(join(userAppDir, 'ui', 'index.html'), '<title>虫族 - AI 智能体框架</title><div>Clerk Setup</div>')
+
+    mockIndexDependencies()
+    const mod = await import('../index')
+    const resolved = mod._resolveStaticDirForStart()
+
+    expect(resolved).toBe(join(__dirname, '..', '..', 'ui'))
+  })
 })

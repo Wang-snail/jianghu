@@ -75,48 +75,48 @@ interface 天机阁SetupGuideProps {
 const PATHS: SetupPath[] = [
   {
     id: 'claude_sub',
-    title: 'Claude Subscription',
+    title: 'Claude OAuth',
     model: 'claude',
-    summary: 'Best default if Claude subscription is available.',
-    bestFor: 'High quality conversation and system management.',
-    tradeoff: 'Most cost-effective option. Rate limits depend on your plan tier.',
-    setup: 'Claude CLI is auto-detected and connected by 江湖.',
+    summary: '通过 Claude Code 登录。',
+    bestFor: '需要稳定对话和系统管理的场景。',
+    tradeoff: '额度取决于 Claude 账号方案。',
+    setup: '江湖会检测 Claude CLI，并引导你完成登录。',
   },
   {
     id: 'codex_sub',
-    title: 'Codex Subscription',
+    title: 'OpenAI Codex OAuth',
     model: 'codex',
-    summary: 'Best if you already run ChatGPT/Codex subscription.',
-    bestFor: 'Tool-heavy execution and code-focused tasks.',
-    tradeoff: 'Cost-effective with a subscription. Quota depends on your plan tier.',
-    setup: 'Codex CLI is auto-detected and connected by 江湖.',
+    summary: '使用 ChatGPT 账号 OAuth 登录 Codex，接入 GPT 系列模型。',
+    bestFor: '工具调用、代码任务和长链执行较多的场景。',
+    tradeoff: '额度取决于 ChatGPT/Codex 账号方案。',
+    setup: '江湖会检测 Codex CLI，并引导你完成 OpenAI OAuth 登录。',
   },
   {
     id: 'openai_api',
     title: 'OpenAI API',
     model: 'openai:gpt-4o-mini',
-    summary: 'Use direct API key billing.',
-    bestFor: 'Teams who need API-key based billing.',
-    tradeoff: 'Pay-per-token. You manage API keys and limits.',
-    setup: 'Uses OPENAI_API_KEY environment variable.',
+    summary: '通过 OpenAI API key 接入。',
+    bestFor: '需要 API key 计费和独立限额控制的场景。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '使用保存的 OpenAI API key 或 OPENAI_API_KEY 环境变量。',
   },
   {
     id: 'anthropic_api',
     title: 'Anthropic API',
     model: 'anthropic:claude-3-5-sonnet-latest',
-    summary: 'Direct Anthropic API path.',
-    bestFor: 'Users standardizing on Anthropic API accounts.',
-    tradeoff: 'Pay-per-token. You manage keys and limits.',
-    setup: 'Uses ANTHROPIC_API_KEY environment variable.',
+    summary: '通过 Anthropic API key 接入。',
+    bestFor: '已经统一使用 Anthropic API 账号的场景。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '使用保存的 Anthropic API key 或 ANTHROPIC_API_KEY 环境变量。',
   },
   {
     id: 'gemini_api',
     title: 'Gemini API',
     model: 'gemini:gemini-2.5-flash',
-    summary: 'Google Gemini via API. Full tool support.',
-    bestFor: 'Access to Gemini models with pay-per-token billing.',
-    tradeoff: 'Pay-per-token. You manage API keys and limits.',
-    setup: 'Uses GEMINI_API_KEY environment variable.',
+    summary: '通过兼容接口接入 Google Gemini。',
+    bestFor: '需要使用 Gemini 模型并按量计费的场景。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '使用保存的 Gemini API key 或 GEMINI_API_KEY 环境变量。',
   },
 ]
 
@@ -143,27 +143,27 @@ function getPathStatus(
 ): { label: string; ready: boolean } {
   switch (pathId) {
     case 'claude_sub':
-      if (!claude) return { label: 'wait. checking...', ready: false }
-      if (claude.connected === true) return { label: 'connected', ready: true }
-      if (claude.installed) return { label: 'installed, not connected', ready: false }
-      return { label: 'not installed', ready: false }
+      if (!claude) return { label: '正在检查...', ready: false }
+      if (claude.connected === true) return { label: '已登录', ready: true }
+      if (claude.installed) return { label: '已安装，未登录', ready: false }
+      return { label: '未安装', ready: false }
     case 'codex_sub':
-      if (!codex) return { label: 'wait. checking...', ready: false }
-      if (codex.connected === true) return { label: 'connected', ready: true }
-      if (codex.installed) return { label: 'installed, not connected', ready: false }
-      return { label: 'not installed', ready: false }
+      if (!codex) return { label: '正在检查...', ready: false }
+      if (codex.connected === true) return { label: '已登录', ready: true }
+      if (codex.installed) return { label: '已安装，未登录', ready: false }
+      return { label: '未安装', ready: false }
     case 'openai_api':
       return apiAuth?.openai.ready
-        ? { label: `API key ready (${describeApiAuthSource(apiAuth.openai)})`, ready: true }
-        : { label: 'API key required', ready: false }
+        ? { label: `密钥可用（${describeApiAuthSource(apiAuth.openai)}）`, ready: true }
+        : { label: '需要密钥', ready: false }
     case 'anthropic_api':
       return apiAuth?.anthropic.ready
-        ? { label: `API key ready (${describeApiAuthSource(apiAuth.anthropic)})`, ready: true }
-        : { label: 'API key required', ready: false }
+        ? { label: `密钥可用（${describeApiAuthSource(apiAuth.anthropic)}）`, ready: true }
+        : { label: '需要密钥', ready: false }
     case 'gemini_api':
       return apiAuth?.gemini?.ready
-        ? { label: `API key ready (${describeApiAuthSource(apiAuth.gemini)})`, ready: true }
-        : { label: 'API key required', ready: false }
+        ? { label: `密钥可用（${describeApiAuthSource(apiAuth.gemini)}）`, ready: true }
+        : { label: '需要密钥', ready: false }
   }
 }
 
@@ -182,18 +182,18 @@ function subPathProvider(pathId: 'claude_sub' | 'codex_sub'): ProviderName {
 function describeApiAuthSource(auth: ApiAuthSignal): string {
   if (auth.hasSavedKey) return '天机阁 key'
   if (auth.hasRoomCredential) return '帮派密钥'
-  if (auth.hasEnvKey) return 'env key'
-  return 'none'
+  if (auth.hasEnvKey) return '环境变量'
+  return '未配置'
 }
 
 function sessionStatusLabel(status: ProviderSessionStatus, kind: 'install' | 'auth'): string {
   switch (status) {
-    case 'starting': return 'Starting'
-    case 'running': return kind === 'install' ? 'Installing' : 'Waiting for login'
-    case '已完成': return kind === 'install' ? 'Installed' : 'Connected'
+    case 'starting': return '正在启动'
+    case 'running': return kind === 'install' ? '正在安装' : '等待登录'
+    case '已完成': return kind === 'install' ? '已安装' : '已连接'
     case 'failed': return '失败'
-    case 'canceled': return 'Canceled'
-    case 'timeout': return 'Timed out'
+    case 'canceled': return '已取消'
+    case 'timeout': return '已超时'
     default: return status
   }
 }
@@ -220,7 +220,7 @@ function SessionLog({ lines }: { lines: ProviderSessionLine[] }): React.JSX.Elem
       className="max-h-32 overflow-y-auto rounded-lg border border-border-primary bg-surface-primary p-2 font-mono text-[11px] text-text-muted"
     >
       {recentLines.length === 0
-        ? 'Waiting for output...'
+        ? '等待输出...'
         : recentLines.map((line) => (
             <div key={line.id} className="whitespace-pre-wrap break-words">
               {line.text}
@@ -306,7 +306,7 @@ export function 天机阁SetupGuide({
     try {
       await action()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed')
+      setError(err instanceof Error ? err.message : '操作失败')
     } finally {
       setProviderBusy(false)
     }
@@ -324,7 +324,7 @@ export function 天机阁SetupGuide({
         const key = apiKeyInput.trim()
         if (!status.ready && !key) {
           const providerLabel = provider === 'openai_api' ? 'OpenAI' : provider === 'gemini_api' ? 'Gemini' : 'Anthropic'
-          setError(`Enter your ${providerLabel} API key to continue.`)
+          setError(`请先填写 ${providerLabel} API key。`)
           return
         }
         if (key) {
@@ -334,7 +334,7 @@ export function 天机阁SetupGuide({
       await onApplyModel(path.model)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to apply')
+      setError(err instanceof Error ? err.message : '应用失败')
     } finally {
       setBusy(false)
     }
@@ -348,8 +348,8 @@ export function 天机阁SetupGuide({
       <div className="w-full max-w-2xl max-h-[90vh] rounded-2xl bg-surface-primary shadow-2xl p-5 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Connect Your 天机阁</h2>
-            <p className="text-xs text-text-muted">Choose a model to power your personal assistant.</p>
+            <h2 className="text-lg font-semibold text-text-primary">接入天机阁</h2>
+            <p className="text-xs text-text-muted">选择用于天机阁对话和调度的模型通道。</p>
           </div>
           <button
             onClick={onClose}
@@ -364,10 +364,10 @@ export function 天机阁SetupGuide({
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="space-y-2">
             <div className="rounded-lg border border-border-primary bg-surface-secondary px-3 py-2 text-xs text-text-secondary">
-              <span className="font-medium text-text-primary">天机阁</span> is your global operator assistant — controls 帮派, messages on your behalf, runs tasks, and gives live commentary.
+              <span className="font-medium text-text-primary">天机阁</span> 是江湖的对话与调度入口，可用于了解现状、推动帮派和处理委托。
             </div>
             <p className="text-xs text-text-secondary">
-              Pick a model path. The 天机阁 will use this to chat, commentate, and manage your system.
+              选择模型接入方式。OpenAI Codex OAuth 可通过 ChatGPT 账号登录；API 路径使用密钥。
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {PATHS.map((path) => {
@@ -393,12 +393,12 @@ export function 天机阁SetupGuide({
                       <span className="text-xs font-semibold text-text-primary">{path.title}</span>
                       {isRecommended && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-success-bg text-status-success font-semibold">
-                          Recommended
+                          推荐
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-text-muted mb-0.5">{path.summary}</p>
-                    <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === 'wait. checking...' ? 'animate-pulse' : ''}`}>
+                    <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === '正在检查...' ? 'animate-pulse' : ''}`}>
                       {status.label}
                     </span>
                   </button>
@@ -413,16 +413,16 @@ export function 天机阁SetupGuide({
             return (
               <div className="mt-2 px-3 py-2 rounded-lg bg-surface-secondary border border-border-primary">
                 <div className="text-xs text-text-secondary space-y-0.5">
-                  <p><span className="text-text-muted">Best for:</span> {path.bestFor}</p>
-                  <p><span className="text-text-muted">Setup:</span> {path.setup}</p>
-                  <p><span className="text-text-muted">Tradeoff:</span> {path.tradeoff}</p>
+                  <p><span className="text-text-muted">适合：</span>{path.bestFor}</p>
+                  <p><span className="text-text-muted">配置：</span>{path.setup}</p>
+                  <p><span className="text-text-muted">取舍：</span>{path.tradeoff}</p>
                 </div>
 
                 {/* Subscription path: Install / Connect / Disconnect */}
                 {isSubPath(selectedPathId) && selectedProvider && (
                   <div className="mt-3 pt-3 border-t border-border-primary space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === 'wait. checking...' ? 'animate-pulse' : ''}`}>
+                      <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === '正在检查...' ? 'animate-pulse' : ''}`}>
                         {status.label}
                       </span>
                       {!providerSignal?.installed && (
@@ -431,7 +431,7 @@ export function 天机阁SetupGuide({
                           disabled={providerBusy || installSession?.active}
                           className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {installSession?.active ? 'Installing...' : 'Install'}
+                          {installSession?.active ? '安装中...' : '安装'}
                         </button>
                       )}
                       {providerSignal?.installed && (
@@ -442,7 +442,7 @@ export function 天机阁SetupGuide({
                               disabled={providerBusy || authSession?.active || installSession?.active}
                               className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              {authSession?.active ? 'Connecting...' : 'Connect'}
+                              {authSession?.active ? '登录中...' : selectedProvider === 'codex' ? 'OAuth 登录' : '连接'}
                             </button>
                           )}
                           <button
@@ -450,7 +450,7 @@ export function 天机阁SetupGuide({
                             disabled={providerBusy}
                             className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            Disconnect
+                            断开
                           </button>
                         </>
                       )}
@@ -460,7 +460,7 @@ export function 天机阁SetupGuide({
                     {installSession && (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-text-muted">Install:</span>
+                          <span className="text-xs text-text-muted">安装：</span>
                           <span className={`text-xs ${sessionStatusColor(installSession.status)}`}>
                             {sessionStatusLabel(installSession.status, 'install')}
                           </span>
@@ -470,7 +470,7 @@ export function 天机阁SetupGuide({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Cancel
+                              取消
                             </button>
                           )}
                           {!installSession.active && (
@@ -479,7 +479,7 @@ export function 天机阁SetupGuide({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Refresh
+                              刷新
                             </button>
                           )}
                         </div>
@@ -491,7 +491,7 @@ export function 天机阁SetupGuide({
                     {authSession && (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-text-muted">Login:</span>
+                          <span className="text-xs text-text-muted">登录：</span>
                           <span className={`text-xs ${sessionStatusColor(authSession.status)}`}>
                             {sessionStatusLabel(authSession.status, 'auth')}
                           </span>
@@ -501,7 +501,7 @@ export function 天机阁SetupGuide({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Cancel
+                              取消
                             </button>
                           )}
                           {!authSession.active && (
@@ -510,13 +510,13 @@ export function 天机阁SetupGuide({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Refresh
+                              刷新
                             </button>
                           )}
                         </div>
                         {authSession.deviceCode && (
                           <div className="text-xs text-text-secondary">
-                            Code: <code className="px-1 py-0.5 rounded bg-surface-primary border border-border-primary">{authSession.deviceCode}</code>
+                            验证码：<code className="px-1 py-0.5 rounded bg-surface-primary border border-border-primary">{authSession.deviceCode}</code>
                           </div>
                         )}
                         {authSession.verificationUrl && (
@@ -526,7 +526,7 @@ export function 天机阁SetupGuide({
                             rel="noreferrer"
                             className="text-xs text-interactive hover:underline break-all inline-block"
                           >
-                            Open verification page
+                            打开验证页面
                           </a>
                         )}
                         <SessionLog lines={authSession.lines} />
@@ -545,7 +545,7 @@ export function 天机阁SetupGuide({
                       </label>
                       {auth?.maskedKey && (
                         <div className="flex items-center gap-2 text-xs">
-                          <span className="text-text-muted">Current:</span>
+                          <span className="text-text-muted">当前：</span>
                           <code className="px-1.5 py-0.5 rounded bg-surface-primary border border-border-primary text-text-secondary font-mono">
                             {auth.maskedKey}
                           </code>
@@ -558,14 +558,14 @@ export function 天机阁SetupGuide({
                         type="password"
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder={status.ready ? 'Paste new key to replace' : 'Paste API key'}
+                        placeholder={status.ready ? '粘贴新密钥以替换' : '粘贴 API key'}
                         disabled={busy}
                         className="w-full px-2.5 py-2 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary text-text-primary placeholder:text-text-muted disabled:opacity-70"
                       />
                       <p className="text-xs text-text-muted">
                         {status.ready
-                          ? 'Key is shared with 帮派设置. Paste a new key to replace it.'
-                          : 'Key is validated and saved when you connect.'}
+                          ? '密钥会与帮派设置共享。粘贴新密钥可替换。'
+                          : '点击连接时会校验并保存密钥。'}
                       </p>
                     </div>
                   )
@@ -573,7 +573,7 @@ export function 天机阁SetupGuide({
 
                 {!status.ready && !isSubPath(selectedPathId) && (
                   <p className="text-xs text-status-warning mt-2">
-                    This provider is not fully configured yet. The 天机阁 may not work until it is ready.
+                    当前通道还没有配置完成，天机阁需要接通后才能使用。
                   </p>
                 )}
               </div>
@@ -591,14 +591,14 @@ export function 天机阁SetupGuide({
             disabled={busy}
             className="px-3 py-1.5 text-xs text-text-muted hover:text-text-secondary border border-border-primary rounded-lg disabled:opacity-50"
           >
-            Cancel
+            取消
           </button>
           <button
             onClick={handleApply}
             disabled={busy || !selectedPathId}
             className="px-3 py-1.5 text-xs bg-interactive text-text-invert rounded-lg hover:bg-interactive-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Connecting...' : 'Connect 天机阁'}
+            {busy ? '连接中...' : '连接天机阁'}
           </button>
         </div>
       </div>

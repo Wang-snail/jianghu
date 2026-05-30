@@ -143,7 +143,7 @@ async function main() {
 
       case 'webhook': {
         const webhookUrl = process.argv[3]
-        const secret = process.argv[4] || 'zuzu_secret'
+        const secret = process.argv[4] || 'jianghu_secret'
 
         if (!webhookUrl) {
           console.error('❌ 请提供Webhook URL')

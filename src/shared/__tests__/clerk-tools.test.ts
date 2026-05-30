@@ -179,6 +179,115 @@ describe('executeClerkTool', () => {
     expect(reminderTask!.roomId).toBe(room.room.id)
     expect(reminderTask!.prompt).toContain('Review room performance')
   })
+
+  it('updates task swimlane flow and only assigns eligible room workers', async () => {
+    const room = createRoomFull(db, { name: 'flowroom' })
+    const worker = queries.createWorker(db, {
+      name: '评论分析弟子',
+      role: '评论分析',
+      systemPrompt: '分析评论并输出结构化结果。',
+      roomId: room.room.id,
+    })
+    const task = queries.createTask(db, {
+      name: '梳理评论痛点',
+      prompt: '提取评论里的高频痛点。',
+      roomId: room.room.id,
+      executor: 'claude_code',
+      triggerType: 'manual',
+    })
+
+    const updated = await executeClerkTool(db, 'company_update_task_flow', {
+      taskName: '梳理评论痛点',
+      roomName: 'flowroom',
+      workerName: '评论分析弟子',
+      order: 2,
+      relation: 'parallel',
+      dependsOn: '#1',
+      parallelGroup: '评论与价格并行',
+      optimizationGoal: '缩短等待时间并提升证据质量',
+      relationReason: '评论分析和价格核对使用不同来源，可以并行推进，汇合后统一验收。',
+      condition: '样本来源通过核验后启动',
+      joinPolicy: '与竞品价格节点都完成后交给风险汇总',
+      reworkTarget: '#1',
+      upstream: '竞品采集弟子输出的评论样本',
+      downstream: '风险汇总弟子',
+      outputFormat: '痛点清单 Markdown 表格',
+    })
+    expect(updated.isError).toBeFalsy()
+    expect(updated.content).toContain('已调整镖单')
+
+    const saved = queries.getTask(db, task.id)!
+    expect(saved.workerId).toBe(worker.id)
+    expect(saved.description).toContain('流程序号：2')
+    expect(saved.description).toContain('逻辑关系：并行')
+    expect(saved.description).toContain('依赖节点：#1')
+    expect(saved.description).toContain('并行组：评论与价格并行')
+    expect(saved.description).toContain('优化目标：缩短等待时间并提升证据质量')
+    expect(saved.description).toContain('关系依据：评论分析和价格核对使用不同来源，可以并行推进，汇合后统一验收。')
+    expect(saved.description).toContain('触发条件：样本来源通过核验后启动')
+    expect(saved.description).toContain('汇合规则：与竞品价格节点都完成后交给风险汇总')
+    expect(saved.description).toContain('返工节点：#1')
+    expect(saved.description).toContain('上游输入：竞品采集弟子输出的评论样本')
+    expect(saved.description).toContain('下游接收方：风险汇总弟子')
+    expect(saved.description).toContain('输出格式：痛点清单 Markdown 表格')
+
+    const rejected = await executeClerkTool(db, 'company_update_task_flow', {
+      taskId: task.id,
+      workerId: room.queen.id,
+    })
+    expect(rejected.isError).toBe(true)
+    expect(rejected.content).toContain('不能被分派')
+  })
+
+  it('repairs broken task flow from Tianji feedback', async () => {
+    const room = createRoomFull(db, { name: 'repairflow' })
+    const worker = queries.createWorker(db, {
+      name: '流程修复弟子',
+      role: '流程修复',
+      systemPrompt: '修复协作流程。',
+      roomId: room.room.id,
+    })
+    const first = queries.createTask(db, {
+      name: '采集样本',
+      prompt: '采集基础样本。',
+      roomId: room.room.id,
+      executor: 'claude_code',
+      triggerType: 'manual',
+      description: '逻辑关系：并行\n依赖节点：#999',
+    })
+    const second = queries.createTask(db, {
+      name: '审核样本',
+      prompt: '审核样本是否可用。',
+      roomId: room.room.id,
+      executor: 'claude_code',
+      triggerType: 'manual',
+      description: '逻辑关系：审核',
+    })
+
+    const repaired = await executeClerkTool(db, 'company_repair_task_flow', {
+      roomName: 'repairflow',
+      issue: '流程节点断开，依赖错误，缺少上下游和输出格式',
+    })
+
+    expect(repaired.isError).toBeFalsy()
+    expect(repaired.content).toContain('已处理帮派「repairflow」的协作流程反馈')
+    expect(repaired.content).toContain(`#${first.id}「采集样本」`)
+    expect(repaired.content).toContain(`#${second.id}「审核样本」`)
+
+    const fixedFirst = queries.getTask(db, first.id)!
+    expect(fixedFirst.workerId).toBe(worker.id)
+    expect(fixedFirst.description).toContain('流程序号：1')
+    expect(fixedFirst.description).toContain('上游输入：用户委托与帮主计划')
+    expect(fixedFirst.description).toContain(`下游接收方：镖单 #${second.id}「审核样本」`)
+    expect(fixedFirst.description).toContain('输出格式：Markdown')
+    expect(fixedFirst.description).not.toContain('逻辑关系：并行')
+    expect(fixedFirst.description).not.toContain('依赖节点：#999')
+
+    const fixedSecond = queries.getTask(db, second.id)!
+    expect(fixedSecond.description).toContain('逻辑关系：审核')
+    expect(fixedSecond.description).toContain('触发条件：上游输出满足验收入口后进入审核')
+    expect(fixedSecond.description).toContain('下游接收方：帮主验收并汇总给用户')
+  })
 })
 
 describe('selectClerkHermesForMessage', () => {
@@ -201,6 +310,22 @@ describe('selectClerkHermesForMessage', () => {
     expect(selected.profiles.map((profile) => profile.name)).toContain('守门使')
     expect(toolNames).toContain('company_delete_room')
     expect(toolNames).toContain('company_stop_queen')
+  })
+
+  it('wakes the task Hermes for swimlane flow adjustments', () => {
+    const selected = selectClerkHermesForMessage('把评论分析镖单前移，并把下游改成风险汇总弟子')
+    const toolNames = selected.toolDefs.map((tool) => tool.function.name)
+
+    expect(selected.profiles.map((profile) => profile.name)).toContain('工序使')
+    expect(toolNames).toContain('company_update_task_flow')
+  })
+
+  it('wakes the task Hermes repair tool for flow error feedback', () => {
+    const selected = selectClerkHermesForMessage('协作流程出错了，帮我反馈天机阁修复')
+    const toolNames = selected.toolDefs.map((tool) => tool.function.name)
+
+    expect(selected.profiles.map((profile) => profile.name)).toContain('工序使')
+    expect(toolNames).toContain('company_repair_task_flow')
   })
 })
 

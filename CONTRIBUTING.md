@@ -1,12 +1,12 @@
-# Contributing to Quoroom
+# Contributing to 江湖
 
-Thanks for your interest in contributing! Quoroom is open source and we welcome contributions of all kinds.
+Thanks for your interest in contributing. 江湖 is an open-source local AI organization system, and contributions are welcome.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/quoroom-ai/room.git
-cd room
+git clone https://github.com/Wang-snail/jianghu.git
+cd jianghu
 npm install
 npm run build
 npm test
@@ -32,10 +32,11 @@ npm test
 ## What to Contribute
 
 - Bug fixes
-- New MCP tools
+- New local MCP tools
 - Documentation improvements
 - Test coverage
 - Performance improvements
+- Safer agent orchestration and evidence workflows
 
 ## Code Style
 

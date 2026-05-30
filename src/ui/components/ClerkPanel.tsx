@@ -66,9 +66,9 @@ function channelTag(source: ClerkMessage['source']): string | null {
 }
 
 function senderLabel(role: ClerkMessage['role']): string {
-  if (role === 'user') return 'keeper'
-  if (role === 'assistant') return 'clerk'
-  return 'commentary'
+  if (role === 'user') return '我'
+  if (role === 'assistant') return '天机阁'
+  return '提示'
 }
 
 function senderTagClass(role: ClerkMessage['role']): string {

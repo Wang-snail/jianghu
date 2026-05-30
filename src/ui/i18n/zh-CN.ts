@@ -1,6 +1,6 @@
 export const zhCNGlossary = {
   navigation: {
-    dashboard: '江湖驾驶舱',
+    dashboard: '帮主管理处',
     companies: '帮派',
     employees: '弟子',
     goals: '委托目标',
@@ -16,9 +16,9 @@ export const zhCNGlossary = {
   company: {
     create: '创建帮派',
     name: '帮派名称',
-    smallBoss: '天机阁',
+    smallBoss: '帮主',
     employee: '弟子',
-    overview: '江湖驾驶舱',
+    overview: '帮主管理处',
     running: '运行中',
     paused: '已暂停',
     stopped: '已停止',

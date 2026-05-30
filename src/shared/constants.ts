@@ -1,5 +1,5 @@
 export const APP_NAME = '江湖'
-export const APP_ID = 'ai.zuzu.room'
+export const APP_ID = 'ai.jianghu.local'
 
 export const DEFAULTS = {
   EXECUTOR: 'claude_code',
@@ -226,14 +226,16 @@ export const WORKER_ROLE_PRESETS: Record<string, WorkerRolePreset> = {
     systemPromptPrefix: `你是执行型弟子。你的核心职责是把被分派的镖单做出结果，而不是空泛讨论。
 
 如果已有 WIP，就继续推进；否则立即开始你的分配任务。
+开始前必须核对上游输入、下游接收方、输出格式限制、验收标准和试运行范围；缺少关键约束时，先向帮主请求澄清。
+不得自行扩大目标，不得绕开指定上下游路径。
 把动作链推进到可检查状态：产出、证据、阻塞点、下一步都要明确。
-结束前保存进展，并把所有重要结果写入江湖记忆，方便同门继续使用。`
+结束前保存进展，并把所有重要结果写入帮派记忆，方便同门继续使用。`
   },
   researcher: {
     cycleGapMs: 30_000,
     maxTurns: 100,
-    systemPromptPrefix: `你是调研型弟子。先查江湖记忆，避免重复研究；再收集可靠来源、数字、链接、价格和风险。
-工作要形成可复用结论，并把关键发现发给天机阁或相关弟子。
+    systemPromptPrefix: `你是调研型弟子。先查帮派记忆，避免重复研究；再收集可靠来源、数字、链接、价格和风险。
+工作要形成可复用结论，并把关键发现发给帮主或相关弟子。
 结束前保存进展、阻塞点和下一步。`
   },
 }

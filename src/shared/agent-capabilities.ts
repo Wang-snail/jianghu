@@ -26,7 +26,7 @@ export const UNIVERSAL_AGENT_CAPABILITY_PROMPT = `## 所有角色通用能力协
 ### 协作与汇报
 - 输出用中文，简洁说明正在解决什么、已完成什么、下一步是什么。
 - 镖单卡片或进度更新必须包含：正在解决的问题、为什么要解决、当前进展、遇到的困难、预计完成时间。
-- 当天机阁无法单独判断时，开启议事堂并邀请相关弟子参与，而不是发起投票。
+- 当帮主无法单独判断时，开启议事堂并邀请相关弟子参与，而不是发起投票。
 
 ### 钱庄预算与履历
 - 钱庄的财气是本次委托的资源预算，用于约束铜钱、银两、金票等消耗；履历声望是弟子的长期资产，二者不能混用。
@@ -52,5 +52,5 @@ export function buildAgentSystemPrompt(worker: Worker, rolePromptPrefix?: string
 export function buildActiveSkillsContext(skillsText: string): string {
   const trimmed = skillsText.trim()
   if (!trimmed) return ''
-  return `## 自动激活的功法\n\n以下功法已根据当前委托、镖单、藏经阁记忆和弟子状态自动加载。执行时必须优先参考；如果发现它过期或不完整，完成镖单后更新它。\n\n${trimmed}`
+  return `## 自动激活的藏经阁 Skills\n\n以下内容来自藏经阁，结构等同于按需加载的 SKILL.md。先判断触发条件和设计模式，再决定是否加载 references、scripts 或 assets；不得把不相关 Skill 塞进本轮上下文。如果发现它过期或不完整，完成镖单后更新本地版本。\n\n${trimmed}`
 }

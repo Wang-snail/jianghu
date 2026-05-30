@@ -15,8 +15,8 @@ body:
       label: Steps to reproduce
       description: How can we reproduce this?
       placeholder: |
-        1. Run `quoroom ...`
-        2. Call tool `quoroom_...`
+        1. Run `npm run dev:room`
+        2. Describe the 江湖 page or local tool action
         3. See error
     validations:
       required: true
@@ -38,7 +38,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: Output of `npm ls quoroom` or the version in package.json
+      description: Version in package.json or the commit SHA
       placeholder: "0.1.0"
     validations:
       required: true

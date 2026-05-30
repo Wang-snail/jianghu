@@ -130,7 +130,7 @@ describe('Worker routes', () => {
 
       const res = await request(ctx, 'POST', `/api/workers/${queenId}/start`)
       expect(res.status).toBe(409)
-      expect((res.body as any).error).toMatch(/start the room first/i)
+      expect((res.body as any).error).toContain('请先启动帮派')
     })
 
     it('starts worker after room start', async () => {

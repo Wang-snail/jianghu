@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { Entity, Observation, Relation, MemoryStats, Task, CreateTaskInput, TaskRun, Worker, CreateWorkerInput, TriggerType, TaskStatus, Watch, ConsoleLogEntry, Room, RoomConfig, RoomActivityEntry, ActivityEventType, QuorumDecision, DecisionType, DecisionStatus, QuorumVote, VoteValue, Goal, GoalStatus, GoalUpdate, Skill, SelfModAuditEntry, SelfModSnapshot, Escalation, EscalationStatus, ChatMessage, ClerkMessage, ClerkMessageSource, ClerkUsageEntry, ClerkUsageSource, ClerkUsageSummary, Credential, Wallet, WalletTransaction, WalletTransactionType, Station, StationStatus, StationProvider, StationTier, RoomMessage, RevenueSummary, WorkerCycle, CycleLogEntry } from './types'
+import type { Entity, Observation, Relation, MemoryStats, Task, CreateTaskInput, TaskRun, Worker, CreateWorkerInput, TriggerType, TaskStatus, Watch, ConsoleLogEntry, Room, RoomConfig, RoomActivityEntry, ActivityEventType, QuorumDecision, DecisionType, DecisionStatus, QuorumVote, VoteValue, Goal, GoalStatus, GoalUpdate, Skill, SelfModAuditEntry, SelfModSnapshot, Escalation, EscalationStatus, TrainingAdjustment, TrainingAdjustmentStatus, ChatMessage, ClerkMessage, ClerkMessageSource, ClerkUsageEntry, ClerkUsageSource, ClerkUsageSummary, Credential, Wallet, WalletTransaction, WalletTransactionType, Station, StationStatus, StationProvider, StationTier, RoomMessage, RevenueSummary, WorkerCycle, CycleLogEntry } from './types'
 import { DEFAULT_ROOM_CONFIG } from './constants'
 import { encryptSecret, decryptSecret } from './secret-store'
 import { CLERK_ASSISTANT_SYSTEM_PROMPT } from './clerk-profile-config'
@@ -1100,8 +1100,8 @@ export function createRoom(db: Database.Database, name: string, goal?: string, c
 }
 
 const QUEEN_WOMAN_NAMES = [
-  '天机阁一号', '天机阁二号', '天机阁三号', '天机阁四号', '天机阁五号',
-  '天机阁六号', '天机阁七号', '天机阁八号', '天机阁九号', '天机阁十号',
+  '帮主一号', '帮主二号', '帮主三号', '帮主四号', '帮主五号',
+  '帮主六号', '帮主七号', '帮主八号', '帮主九号', '帮主十号',
   '目标负责人', '交付负责人', '运营负责人', '项目负责人', '执行负责人',
 ]
 
@@ -1358,6 +1358,7 @@ function mapGoalRow(row: Record<string, unknown>): Goal {
     status: row.status as GoalStatus,
     parentGoalId: (row.parent_goal_id as number | null) ?? null,
     assignedWorkerId: (row.assigned_worker_id as number | null) ?? null,
+    expectedCompletedAt: (row.expected_completed_at as string | null) ?? null,
     progress: (row.progress as number) ?? 0,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string
@@ -1366,11 +1367,11 @@ function mapGoalRow(row: Record<string, unknown>): Goal {
 
 export function createGoal(
   db: Database.Database, roomId: number, description: string,
-  parentGoalId?: number, assignedWorkerId?: number
+  parentGoalId?: number, assignedWorkerId?: number, expectedCompletedAt?: string | null
 ): Goal {
   const result = db
-    .prepare('INSERT INTO goals (room_id, description, parent_goal_id, assigned_worker_id) VALUES (?, ?, ?, ?)')
-    .run(roomId, description, parentGoalId ?? null, assignedWorkerId ?? null)
+    .prepare('INSERT INTO goals (room_id, description, parent_goal_id, assigned_worker_id, expected_completed_at) VALUES (?, ?, ?, ?, ?)')
+    .run(roomId, description, parentGoalId ?? null, assignedWorkerId ?? null, expectedCompletedAt ?? null)
   return getGoal(db, result.lastInsertRowid as number)!
 }
 
@@ -1394,11 +1395,11 @@ export function getSubGoals(db: Database.Database, parentGoalId: number): Goal[]
 }
 
 export function updateGoal(db: Database.Database, id: number, updates: Partial<{
-  description: string; status: GoalStatus; assignedWorkerId: number | null; progress: number
+  description: string; status: GoalStatus; assignedWorkerId: number | null; expectedCompletedAt: string | null; progress: number
 }>): void {
   const fieldMap: Record<string, string> = {
     description: 'description', status: 'status',
-    assignedWorkerId: 'assigned_worker_id', progress: 'progress'
+    assignedWorkerId: 'assigned_worker_id', expectedCompletedAt: 'expected_completed_at', progress: 'progress'
   }
   const fields: string[] = []
   const values: unknown[] = []
@@ -1671,15 +1672,20 @@ export function createEscalation(
   // Mirror message traffic into room activity so Overview > Timeline shows it live.
   const trimmedQuestion = question.trim()
   const detail = trimmedQuestion.length > 1000 ? `${trimmedQuestion.slice(0, 1000)}…` : trimmedQuestion
-  let summary = 'Message created'
+  let summary = '消息已创建'
   if (toAgentId == null) {
     summary = fromAgentId != null
-      ? `Worker #${fromAgentId} sent message to keeper`
-      : 'Message sent to keeper'
+      ? `弟子 #${fromAgentId} 向用户发出消息`
+      : '已向用户发出消息'
   } else {
-    summary = fromAgentId != null
-      ? `Worker #${fromAgentId} sent message to worker #${toAgentId}`
-      : `Keeper sent message to worker #${toAgentId}`
+    if (fromAgentId != null) {
+      summary = `弟子 #${fromAgentId} 向弟子 #${toAgentId} 发出消息`
+    } else {
+      const room = getRoom(db, roomId)
+      summary = room?.queenWorkerId === toAgentId
+        ? '用户向帮主发出消息'
+        : `用户向弟子 #${toAgentId} 发出消息`
+    }
   }
   logRoomActivity(
     db,
@@ -1744,6 +1750,85 @@ export function getRecentKeeperAnswers(db: Database.Database, roomId: number, fr
     `SELECT * FROM escalations WHERE room_id = ? AND from_agent_id = ? AND status = 'resolved' AND to_agent_id IS NULL ORDER BY resolved_at DESC LIMIT ?`
   ).all(roomId, fromAgentId, limit)
   return (rows as Record<string, unknown>[]).map(mapEscalationRow)
+}
+
+// ─── Training Adjustments ───────────────────────────────────
+
+function ensureTrainingAdjustmentsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS training_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      escalation_id INTEGER NOT NULL REFERENCES escalations(id) ON DELETE CASCADE,
+      worker_id INTEGER REFERENCES workers(id) ON DELETE SET NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      config_json TEXT,
+      created_at DATETIME DEFAULT (datetime('now','localtime')),
+      updated_at DATETIME DEFAULT (datetime('now','localtime')),
+      UNIQUE(escalation_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_adjustments_room ON training_adjustments(room_id);
+    CREATE INDEX IF NOT EXISTS idx_training_adjustments_escalation ON training_adjustments(escalation_id);
+  `)
+  const columns = db.prepare('PRAGMA table_info(training_adjustments)').all() as Array<{ name: string }>
+  if (!columns.some(column => column.name === 'config_json')) {
+    db.prepare('ALTER TABLE training_adjustments ADD COLUMN config_json TEXT').run()
+  }
+}
+
+function mapTrainingAdjustmentRow(row: Record<string, unknown>): TrainingAdjustment {
+  return {
+    id: row.id as number,
+    roomId: row.room_id as number,
+    escalationId: row.escalation_id as number,
+    workerId: (row.worker_id as number | null) ?? null,
+    status: row.status as TrainingAdjustmentStatus,
+    progress: row.progress as number,
+    note: (row.note as string | null) ?? null,
+    configJson: (row.config_json as string | null) ?? null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  }
+}
+
+export function listTrainingAdjustments(db: Database.Database, roomId: number): TrainingAdjustment[] {
+  ensureTrainingAdjustmentsTable(db)
+  const rows = db
+    .prepare('SELECT * FROM training_adjustments WHERE room_id = ? ORDER BY updated_at DESC, id DESC')
+    .all(roomId)
+  return (rows as Record<string, unknown>[]).map(mapTrainingAdjustmentRow)
+}
+
+export function upsertTrainingAdjustment(
+  db: Database.Database,
+  roomId: number,
+  escalationId: number,
+  workerId: number | null,
+  status: TrainingAdjustmentStatus,
+  progress: number,
+  note?: string | null,
+  configJson?: string | null
+): TrainingAdjustment {
+  ensureTrainingAdjustmentsTable(db)
+  const safeProgress = Math.max(0, Math.min(100, Math.trunc(progress)))
+  db.prepare(`
+    INSERT INTO training_adjustments (room_id, escalation_id, worker_id, status, progress, note, config_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(escalation_id) DO UPDATE SET
+      worker_id = excluded.worker_id,
+      status = excluded.status,
+      progress = excluded.progress,
+      note = excluded.note,
+      config_json = excluded.config_json,
+      updated_at = datetime('now','localtime')
+  `).run(roomId, escalationId, workerId ?? null, status, safeProgress, note?.trim() || null, configJson?.trim() || null)
+
+  const row = db
+    .prepare('SELECT * FROM training_adjustments WHERE escalation_id = ?')
+    .get(escalationId) as Record<string, unknown>
+  return mapTrainingAdjustmentRow(row)
 }
 
 // ─── Credentials ────────────────────────────────────────────
@@ -2282,9 +2367,13 @@ export function ensureClerkWorker(db: Database.Database): Worker {
   if (existingId) {
     const worker = getWorker(db, Number(existingId))
     if (worker) {
-      const updates: Partial<Pick<Worker, 'role' | 'systemPrompt'>> = {}
+      const updates: Parameters<typeof updateWorker>[2] = {}
+      if (worker.name !== '天机阁总管') updates.name = '天机阁总管'
       if (worker.role !== 'clerk') updates.role = 'clerk'
       if (worker.systemPrompt !== CLERK_ASSISTANT_SYSTEM_PROMPT) updates.systemPrompt = CLERK_ASSISTANT_SYSTEM_PROMPT
+      if (worker.description !== '全局天机阁助手，负责和用户对话、了解江湖状态并执行本地管理动作。') {
+        updates.description = '全局天机阁助手，负责和用户对话、了解江湖状态并执行本地管理动作。'
+      }
       if (Object.keys(updates).length > 0) {
         updateWorker(db, worker.id, updates)
         return getWorker(db, worker.id) ?? worker
@@ -2293,10 +2382,10 @@ export function ensureClerkWorker(db: Database.Database): Worker {
     }
   }
   const worker = createWorker(db, {
-    name: 'Clerk',
+    name: '天机阁总管',
     role: 'clerk',
     systemPrompt: CLERK_ASSISTANT_SYSTEM_PROMPT,
-    description: 'Global assistant for the keeper. Helps with system management and commentates on room activity.',
+    description: '全局天机阁助手，负责和用户对话、了解江湖状态并执行本地管理动作。',
   })
   setSetting(db, 'clerk_worker_id', String(worker.id))
   return worker

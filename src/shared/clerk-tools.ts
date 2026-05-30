@@ -3,10 +3,12 @@ import * as queries from './db-queries'
 import { createRoom, pauseRoom, restartRoom, deleteRoom } from './room'
 import { triggerAgent } from './agent-loop'
 import type { ToolDef } from './queen-tools'
-import type { VoteValue } from './types'
+import type { Task, VoteValue, Worker } from './types'
 import { getRoomCloudId } from './cloud-sync'
 import { keeperVote } from './quorum'
 import { stopRoomRuntime } from '../server/runtime'
+import { upsertTaskFlowDescription, parseTaskFlowSpec, taskFlowRelationLabel, type TaskFlowRelation } from './task-flow'
+import { isAssignableWorker } from './worker-roles'
 
 export type ClerkToolArgs = Record<string, unknown>
 
@@ -280,6 +282,53 @@ export const CLERK_TOOL_DEFINITIONS: ToolDef[] = [
   {
     type: 'function',
     function: {
+      name: 'company_update_task_flow',
+      description: 'Update a task swimlane flow: order, assigned worker, upstream input, downstream receiver, output format, and nonlinear relation such as parallel, condition, join, review, or rework.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'number', description: 'Task ID' },
+          taskName: { type: 'string', description: 'Task name, used when taskId is not provided' },
+          roomId: { type: 'number', description: 'Optional room ID to narrow task lookup' },
+          roomName: { type: 'string', description: 'Optional room name to narrow task lookup' },
+          workerId: { type: 'number', description: 'Assignable worker ID; use null to clear assignment' },
+          workerName: { type: 'string', description: 'Assignable worker name; use when workerId is not provided' },
+          order: { type: 'number', description: 'Positive swimlane step order' },
+          relation: { type: 'string', description: 'Flow relation: sequential, parallel, conditional, join, review, or rework' },
+          dependsOn: { type: 'string', description: 'Upstream task IDs/names this task depends on, e.g. #12,#13' },
+          parallelGroup: { type: 'string', description: 'Parallel group name when multiple tasks can run together' },
+          optimizationGoal: { type: 'string', description: 'Business goal this relation improves, e.g. speed, quality, risk control, cost efficiency' },
+          relationReason: { type: 'string', description: 'Why this relation is better for the business outcome; required for meaningful nonlinear relations' },
+          condition: { type: 'string', description: 'Condition that decides this branch or review path' },
+          joinPolicy: { type: 'string', description: 'Join rule, e.g. all upstream tasks must pass' },
+          reworkTarget: { type: 'string', description: 'Task ID/name to return to when this task requests rework' },
+          upstream: { type: 'string', description: 'Upstream input constraint' },
+          downstream: { type: 'string', description: 'Downstream receiver constraint' },
+          outputFormat: { type: 'string', description: 'Required output format constraint' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'company_repair_task_flow',
+      description: 'Inspect and repair broken task flow fields for a room or task: missing order, missing handoff fields, invalid dependencies, invalid decision paths, or unassigned/invalid workers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          roomId: { type: 'number', description: 'Optional room ID to repair' },
+          roomName: { type: 'string', description: 'Optional room name to repair' },
+          taskId: { type: 'number', description: 'Optional task ID; if omitted, repair all tasks in the room' },
+          taskName: { type: 'string', description: 'Optional task name; used when taskId is not provided' },
+          issue: { type: 'string', description: 'User feedback describing what is wrong with the flow' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'company_remind_keeper',
       description: 'Schedule a one-time reminder message to the keeper at a specific time.',
       parameters: {
@@ -345,7 +394,7 @@ export const CLERK_TOOL_DEFINITIONS: ToolDef[] = [
 export type ClerkHermesName =
   | '巡江使'
   | '开帮使'
-  | '镖局使'
+  | '工序使'
   | '传书使'
   | '钱庄使'
   | '守门使'
@@ -387,18 +436,20 @@ export const CLERK_HERMES_PROFILES: ClerkHermesProfile[] = [
     keywords: [/新建|创建|成立|开帮|建帮|修改|调整|启动|运行|暂停|恢复|重启|目标|介绍|说明/]
   },
   {
-    name: '镖局使',
-    purpose: '创建镖单、查看任务和安排提醒。',
+    name: '工序使',
+    purpose: '创建镖单、查看任务、调整弟子协作流程和安排提醒。',
     toolNames: [
       'company_list_tasks',
       'company_create_task',
+      'company_update_task_flow',
+      'company_repair_task_flow',
       'company_remind_keeper'
     ],
-    keywords: [/任务|镖单|委托|安排|提醒|定时|计划|排期|执行|分派|交付/]
+    keywords: [/任务|镖单|委托|安排|提醒|定时|计划|排期|执行|分派|交付|流程|泳道|上游|下游|输出格式|交接|前移|后移|顺序|出错|错误|修复|不对|异常|混乱|断开|连不上/]
   },
   {
     name: '传书使',
-    purpose: '在用户、帮派和待处理请求之间传递消息。',
+    purpose: '在用户、帮派、待处理请求和龙门镖局帮派间传书之间传递消息；龙门镖局只负责帮派之间的信息传输。',
     toolNames: [
       'company_message_room',
       'company_list_keeper_requests',
@@ -514,18 +565,304 @@ function resolveFromRoom(db: Database.Database, args: ClerkToolArgs): ReturnType
   return queries.listRooms(db)[0] ?? null
 }
 
+function resolveTaskForFlow(
+  db: Database.Database,
+  args: ClerkToolArgs,
+  room: ReturnType<typeof queries.getRoom>
+): { task: Task | null; error?: string } {
+  const taskId = parseIntArg(args.taskId ?? args.id)
+  if (taskId != null) {
+    const task = queries.getTask(db, taskId)
+    if (!task) return { task: null, error: `镖单 #${taskId} 不存在。` }
+    if (room && task.roomId !== room.id) {
+      return { task: null, error: `镖单 #${taskId} 不属于帮派「${room.name}」。` }
+    }
+    return { task }
+  }
+
+  const rawName = String(args.taskName ?? args.name ?? '').trim()
+  if (!rawName) return { task: null, error: '需要提供 taskId 或 taskName。' }
+
+  const normalized = rawName.toLowerCase()
+  const candidates = queries.listTasks(db, room?.id).filter((task) => {
+    const name = task.name.toLowerCase()
+    return name === normalized || name.includes(normalized)
+  })
+  if (candidates.length === 0) return { task: null, error: `没有找到名为「${rawName}」的镖单。` }
+  const exact = candidates.filter((task) => task.name.toLowerCase() === normalized)
+  const matches = exact.length > 0 ? exact : candidates
+  if (matches.length > 1) {
+    return {
+      task: null,
+      error: `找到 ${matches.length} 张相近镖单，请指定 taskId：${matches.map((task) => `#${task.id} ${task.name}`).join('；')}`
+    }
+  }
+  return { task: matches[0] ?? null }
+}
+
+function resolveAssignableWorkerForTask(
+  db: Database.Database,
+  task: Task,
+  args: ClerkToolArgs
+): { workerId?: number | null; worker?: Worker; error?: string } {
+  const hasWorkerId = Object.prototype.hasOwnProperty.call(args, 'workerId')
+  if (hasWorkerId && (args.workerId === null || String(args.workerId).trim() === '')) {
+    return { workerId: null }
+  }
+
+  let worker: Worker | null = null
+  const workerId = parseIntArg(args.workerId)
+  if (workerId != null) {
+    worker = queries.getWorker(db, workerId)
+    if (!worker) return { error: `弟子 #${workerId} 不存在。` }
+  } else {
+    const workerName = String(args.workerName ?? '').trim()
+    if (!workerName) return {}
+    const normalized = workerName.toLowerCase()
+    const candidates = queries.listWorkers(db).filter((item) => {
+      if (task.roomId != null && item.roomId !== task.roomId) return false
+      const name = item.name.toLowerCase()
+      return name === normalized || name.includes(normalized)
+    })
+    if (candidates.length === 0) return { error: `客栈或当前帮派中没有找到可分派弟子「${workerName}」。` }
+    const exact = candidates.filter((item) => item.name.toLowerCase() === normalized)
+    const matches = exact.length > 0 ? exact : candidates
+    if (matches.length > 1) {
+      return {
+        error: `找到 ${matches.length} 位相近弟子，请指定 workerId：${matches.map((item) => `#${item.id} ${item.name}`).join('；')}`
+      }
+    }
+    worker = matches[0] ?? null
+  }
+
+  if (!worker) return {}
+  const room = task.roomId != null ? queries.getRoom(db, task.roomId) : null
+  if (task.roomId != null && worker.roomId !== task.roomId) {
+    return { error: `弟子「${worker.name}」不属于当前帮派，不能分派到这张镖单。` }
+  }
+  if (!isAssignableWorker(worker, room?.queenWorkerId ?? null)) {
+    return { error: `「${worker.name}」是天机阁、帮主或守卫角色，不能被分派为执行弟子。` }
+  }
+  return { workerId: worker.id, worker }
+}
+
+function taskFlowRefIds(value: string): number[] {
+  const ids = new Set<number>()
+  for (const match of value.matchAll(/#?(\d+)/g)) {
+    const id = Number(match[1])
+    if (Number.isFinite(id) && id > 0) ids.add(id)
+  }
+  return [...ids]
+}
+
+function validTaskRefs(value: string, taskIds: Set<number>, currentTaskId: number): string {
+  const ids = taskFlowRefIds(value).filter((id) => id !== currentTaskId && taskIds.has(id))
+  return ids.map((id) => `#${id}`).join(', ')
+}
+
+function flowRepairOutputFormat(task: Task): string {
+  const name = task.name.trim()
+  if (/审核|核验|验收|风险/.test(name)) {
+    return 'Markdown 清单：通过项、问题项、根因、返工建议、是否可交给下游'
+  }
+  if (/报告|整合|汇总/.test(name)) {
+    return 'Markdown 报告：结论、依据、风险、下一步、引用的上游结果'
+  }
+  if (/采集|情报|竞品|市场|评论|价格|数据/.test(name)) {
+    return 'Markdown 表格：样本、来源、关键发现、限制、可交给下游的数据'
+  }
+  return '结构化 Markdown：做了什么、产生了什么结果、依据、阻塞、交给谁'
+}
+
+function repairTaskFlow(
+  db: Database.Database,
+  room: ReturnType<typeof queries.getRoom>,
+  targetTask: Task | null,
+  issue: string
+): ClerkToolResult {
+  if (!room) return { content: 'Error: room not found.', isError: true }
+  const allTasks = queries.listTasks(db, room.id)
+  const tasks = targetTask ? allTasks.filter((task) => task.id === targetTask.id) : allTasks
+  if (tasks.length === 0) return { content: `帮派「${room.name}」暂无可修复镖单。` }
+
+  const ordered = [...allTasks].sort((a, b) => {
+    const orderA = parseTaskFlowSpec(a).order ?? allTasks.findIndex((task) => task.id === a.id) + 1
+    const orderB = parseTaskFlowSpec(b).order ?? allTasks.findIndex((task) => task.id === b.id) + 1
+    if (orderA !== orderB) return orderA - orderB
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  })
+  const orderByTaskId = new Map(ordered.map((task, index) => [task.id, index + 1]))
+  const taskIds = new Set(allTasks.map((task) => task.id))
+  const assignableWorkers = queries.listRoomWorkers(db, room.id)
+    .filter((worker) => isAssignableWorker(worker, room.queenWorkerId ?? null))
+  const taskCountByWorker = new Map<number, number>()
+  for (const task of allTasks) {
+    if (task.workerId != null) taskCountByWorker.set(task.workerId, (taskCountByWorker.get(task.workerId) ?? 0) + 1)
+  }
+  const nextWorker = (): Worker | null => {
+    if (assignableWorkers.length === 0) return null
+    return [...assignableWorkers].sort((a, b) => (taskCountByWorker.get(a.id) ?? 0) - (taskCountByWorker.get(b.id) ?? 0))[0] ?? null
+  }
+
+  const fixed: string[] = []
+  const unresolved: string[] = []
+  for (const task of tasks) {
+    const index = ordered.findIndex((item) => item.id === task.id)
+    const previous = index > 0 ? ordered[index - 1] : null
+    const next = index >= 0 && index < ordered.length - 1 ? ordered[index + 1] : null
+    const spec = parseTaskFlowSpec(task)
+    const patch: Parameters<typeof upsertTaskFlowDescription>[1] = {}
+    const taskFixes: string[] = []
+
+    const expectedOrder = orderByTaskId.get(task.id) ?? 1
+    if (spec.order == null || spec.order < 1) {
+      patch.order = expectedOrder
+      taskFixes.push(`补流程序号 ${expectedOrder}`)
+    }
+    if (!spec.upstream) {
+      patch.upstream = previous ? `镖单 #${previous.id}「${previous.name}」的交付结果` : `用户委托与帮主计划${issue ? `；用户反馈：${issue}` : ''}`
+      taskFixes.push('补上游输入')
+    }
+    if (!spec.downstream) {
+      patch.downstream = next ? `镖单 #${next.id}「${next.name}」` : '帮主验收并汇总给用户'
+      taskFixes.push('补下游接收方')
+    }
+    if (!spec.outputFormat) {
+      patch.outputFormat = flowRepairOutputFormat(task)
+      taskFixes.push('补输出格式')
+    }
+
+    const validDependsOn = validTaskRefs(spec.dependsOn, taskIds, task.id)
+    if (spec.dependsOn && validDependsOn !== spec.dependsOn.trim()) {
+      patch.dependsOn = validDependsOn
+      taskFixes.push(validDependsOn ? '清理无效依赖节点' : '移除无效依赖节点')
+    }
+    const validReworkTarget = validTaskRefs(spec.reworkTarget, taskIds, task.id)
+    if (spec.reworkTarget && validReworkTarget !== spec.reworkTarget.trim()) {
+      patch.reworkTarget = validReworkTarget
+      taskFixes.push(validReworkTarget ? '清理无效返工节点' : '移除无效返工节点')
+    }
+
+    if (spec.relation !== 'sequential' && !spec.optimizationGoal && !spec.relationReason) {
+      if (spec.relation === 'review') {
+        patch.optimizationGoal = '提升交付质量并减少下游返工'
+        patch.relationReason = '审核节点用于在结果进入下游前检查证据、格式和可用性，避免错误扩散。'
+        taskFixes.push('为审核节点补业务依据')
+      } else if (spec.relation === 'conditional') {
+        patch.optimizationGoal = '控制风险并减少无效执行'
+        patch.relationReason = '条件分支用于在不同证据状态下选择不同路径，避免所有情况都走同一套低效流程。'
+        taskFixes.push('为条件分支补业务依据')
+      } else if (spec.relation === 'rework') {
+        patch.optimizationGoal = '减少错误扩散并提升最终可用性'
+        patch.relationReason = '返工节点用于把不合格输出退回责任节点修正，避免下游继续基于错误材料工作。'
+        taskFixes.push('为返工节点补业务依据')
+      } else {
+        patch.relation = 'sequential'
+        patch.parallelGroup = ''
+        patch.condition = ''
+        patch.joinPolicy = ''
+        patch.reworkTarget = ''
+        taskFixes.push('复杂关系缺少业务依据，降为串行')
+      }
+    }
+
+    const effectiveRelation = patch.relation ?? spec.relation
+    if (effectiveRelation === 'conditional' && !spec.condition && patch.condition === undefined) {
+      patch.condition = '上游输出出现分支条件或用户反馈要求时进入该节点'
+      taskFixes.push('补条件分支触发条件')
+    } else if (effectiveRelation === 'join' && !spec.joinPolicy && patch.joinPolicy === undefined) {
+      patch.joinPolicy = '所有上游镖单验收通过后再汇合'
+      taskFixes.push('补汇合规则')
+    } else if (effectiveRelation === 'review' && !spec.condition && patch.condition === undefined) {
+      patch.condition = '上游输出满足验收入口后进入审核'
+      taskFixes.push('补审核入口条件')
+    } else if (effectiveRelation === 'rework' && !validReworkTarget) {
+      if (previous) {
+        patch.reworkTarget = `#${previous.id}`
+        taskFixes.push(`补返工节点 #${previous.id}`)
+      } else {
+        patch.relation = 'sequential'
+        taskFixes.push('返工缺少可退回节点，降为串行')
+      }
+    }
+
+    const worker = task.workerId != null ? queries.getWorker(db, task.workerId) : null
+    const workerInvalid = task.workerId == null || !worker || worker.roomId !== room.id || !isAssignableWorker(worker, room.queenWorkerId ?? null)
+    const updates: Parameters<typeof queries.updateTask>[2] = {}
+    if (Object.keys(patch).length > 0) updates.description = upsertTaskFlowDescription(task, patch)
+    if (workerInvalid) {
+      const replacement = nextWorker()
+      if (replacement) {
+        updates.workerId = replacement.id
+        taskCountByWorker.set(replacement.id, (taskCountByWorker.get(replacement.id) ?? 0) + 1)
+        taskFixes.push(`分派给「${replacement.name}」`)
+      } else {
+        unresolved.push(`#${task.id}「${task.name}」缺少可分派弟子，需要先从客栈调入专职弟子。`)
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      queries.updateTask(db, task.id, updates)
+      fixed.push(`#${task.id}「${task.name}」：${taskFixes.join('、')}`)
+    } else if (taskFixes.length > 0) {
+      fixed.push(`#${task.id}「${task.name}」：${taskFixes.join('、')}`)
+    }
+  }
+
+  if (fixed.length === 0 && unresolved.length === 0) {
+    return { content: `已检查帮派「${room.name}」的协作流程，暂未发现可自动修复的问题。${issue ? `用户反馈已记录：${issue}` : ''}` }
+  }
+  return {
+    content: [
+      `已处理帮派「${room.name}」的协作流程反馈${issue ? `：${issue}` : '。'}`,
+      fixed.length > 0 ? `已修复：\n${fixed.join('\n')}` : '已修复：暂无自动修改项。',
+      unresolved.length > 0 ? `仍需帮主处理：\n${unresolved.join('\n')}` : '仍需帮主处理：无。'
+    ].join('\n')
+  }
+}
+
 function normalizeRoomName(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase()
+  return String(value ?? '').trim()
 }
 
 function toSingleWordName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '')
-    .trim()
+  const trimmed = value.trim()
+  if (/[\u4e00-\u9fff]/.test(trimmed)) {
+    return trimmed
+      .replace(/\s+/g, '')
+      .replace(/[^\u4e00-\u9fffA-Za-z0-9_-]/g, '')
+      .slice(0, 40)
+  }
+  return trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '').trim()
 }
 
 function buildRoomNameFromObjective(objective: string, existingNames: Set<string>): string {
+  const compact = objective.replace(/\s+/g, '')
+  if (/[\u4e00-\u9fff]/.test(compact)) {
+    let base = '新委托帮'
+    if (/亚马逊|Amazon/i.test(compact) && /市场|分析|机会/.test(compact)) {
+      base = '亚马逊市场分析帮'
+    } else if (/市场/.test(compact) && /分析|调研|机会/.test(compact)) {
+      base = '市场分析帮'
+    } else if (/竞品|竞争/.test(compact)) {
+      base = '竞品分析帮'
+    } else if (/产品|新品/.test(compact) && /分析|机会|评估/.test(compact)) {
+      base = '产品评估帮'
+    } else {
+      const cleaned = compact
+        .replace(/[，。,.；;：:！!？?、]/g, '')
+        .replace(/(?:注意|需要|要求|安排|弟子|分工序|分工|流程|用于|用来|为了|目标|委托|分析|完成|处理)/g, '')
+        .slice(0, 10)
+      if (cleaned.length >= 2) base = `${cleaned}帮`
+    }
+    if (!existingNames.has(base.toLowerCase())) return base
+    for (let i = 2; i <= 9999; i++) {
+      const candidate = `${base}${i}`
+      if (!existingNames.has(candidate.toLowerCase())) return candidate
+    }
+    return `${base}${Date.now()}`
+  }
+
   const tokens = objective
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -950,6 +1287,86 @@ export async function executeClerkTool(
             ? `at ${scheduledAt}`
             : 'manual'
         return { content: `Created task "${task.name}" (#${task.id}, ${scheduleLabel}).` }
+      }
+
+      case 'company_update_task_flow': {
+        const selectorArgs: ClerkToolArgs = { roomId: args.roomId, roomName: args.roomName }
+        const room = resolveRoom(db, selectorArgs)
+        if (hasExplicitRoomSelector(args) && !room) return { content: 'Error: room not found.', isError: true }
+
+        const resolved = resolveTaskForFlow(db, args, room)
+        if (!resolved.task) return { content: `Error: ${resolved.error ?? 'task not found.'}`, isError: true }
+        const task = resolved.task
+
+        const patch: Parameters<typeof upsertTaskFlowDescription>[1] = {}
+        if (args.order !== undefined) {
+          const parsedOrder = parseIntArg(args.order)
+          if (parsedOrder == null || parsedOrder < 1) {
+            return { content: 'Error: order must be a positive integer.', isError: true }
+          }
+          patch.order = parsedOrder
+        }
+        if (args.relation !== undefined) patch.relation = String(args.relation ?? '').trim() as TaskFlowRelation
+        if (args.dependsOn !== undefined) patch.dependsOn = String(args.dependsOn ?? '').trim()
+        if (args.parallelGroup !== undefined) patch.parallelGroup = String(args.parallelGroup ?? '').trim()
+        if (args.optimizationGoal !== undefined) patch.optimizationGoal = String(args.optimizationGoal ?? '').trim()
+        if (args.relationReason !== undefined) patch.relationReason = String(args.relationReason ?? '').trim()
+        if (args.condition !== undefined) patch.condition = String(args.condition ?? '').trim()
+        if (args.joinPolicy !== undefined) patch.joinPolicy = String(args.joinPolicy ?? '').trim()
+        if (args.reworkTarget !== undefined) patch.reworkTarget = String(args.reworkTarget ?? '').trim()
+        if (args.upstream !== undefined) patch.upstream = String(args.upstream ?? '').trim()
+        if (args.downstream !== undefined) patch.downstream = String(args.downstream ?? '').trim()
+        if (args.outputFormat !== undefined) patch.outputFormat = String(args.outputFormat ?? '').trim()
+
+        const workerResult = resolveAssignableWorkerForTask(db, task, args)
+        if (workerResult.error) return { content: `Error: ${workerResult.error}`, isError: true }
+
+        const updates: Parameters<typeof queries.updateTask>[2] = {}
+        if (Object.keys(patch).length > 0) {
+          updates.description = upsertTaskFlowDescription(task, patch)
+        }
+        if (workerResult.workerId !== undefined) {
+          updates.workerId = workerResult.workerId
+        }
+        if (Object.keys(updates).length === 0) {
+          return { content: '没有收到需要调整的流程字段。' }
+        }
+
+        queries.updateTask(db, task.id, updates)
+        const updated = queries.getTask(db, task.id) ?? { ...task, ...updates }
+        const spec = parseTaskFlowSpec(updated)
+        const workerLabel = updated.workerId != null
+          ? (queries.getWorker(db, updated.workerId)?.name ?? `#${updated.workerId}`)
+          : '未分派'
+        return {
+          content: [
+            `已调整镖单「${updated.name}」的弟子协作流程。`,
+            `顺序：${spec.order ?? '未设置'}；关系：${taskFlowRelationLabel(spec.relation)}；弟子：${workerLabel}；优化目标：${spec.optimizationGoal || '未设置'}；关系依据：${spec.relationReason || '未设置'}；依赖：${spec.dependsOn || '未设置'}；并行组：${spec.parallelGroup || '未设置'}；条件：${spec.condition || '未设置'}；汇合：${spec.joinPolicy || '未设置'}；返工：${spec.reworkTarget || '未设置'}；上游：${spec.upstream || '未设置'}；下游：${spec.downstream || '未设置'}；输出格式：${spec.outputFormat || '未设置'}。`
+          ].join('\n')
+        }
+      }
+
+      case 'company_repair_task_flow': {
+        const issue = String(args.issue ?? args.feedback ?? args.problem ?? '').trim()
+        const selectorArgs: ClerkToolArgs = { roomId: args.roomId, roomName: args.roomName }
+        let room = resolveRoom(db, selectorArgs)
+        if (hasExplicitRoomSelector(args) && !room) return { content: 'Error: room not found.', isError: true }
+
+        let targetTask: Task | null = null
+        const hasTaskSelector = args.taskId !== undefined || args.id !== undefined || typeof args.taskName === 'string' || typeof args.name === 'string'
+        if (hasTaskSelector) {
+          const resolved = resolveTaskForFlow(db, args, room)
+          if (!resolved.task) return { content: `Error: ${resolved.error ?? 'task not found.'}`, isError: true }
+          targetTask = resolved.task
+          if (!room && targetTask.roomId != null) room = queries.getRoom(db, targetTask.roomId)
+        }
+
+        if (!room) {
+          const activeRooms = queries.listRooms(db).filter(candidate => candidate.status === 'active')
+          room = activeRooms[0] ?? queries.listRooms(db)[0] ?? null
+        }
+
+        return repairTaskFlow(db, room, targetTask, issue)
       }
 
       case 'company_remind_keeper': {

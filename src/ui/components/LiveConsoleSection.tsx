@@ -361,7 +361,7 @@ export function LiveConsoleSection({
         startedAt: c.startedAt,
         status: c.status,
         label: `${worker?.name ?? '弟子'} 巡行`,
-        badgeLabel: isQueen ? '天机阁' : (worker?.name ?? null),
+        badgeLabel: isQueen ? '帮主' : (worker?.name ?? null),
         badgeStyle: isQueen
           ? 'border-purple-500/40 bg-purple-500/20 text-purple-300'
           : 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300',

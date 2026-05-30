@@ -78,48 +78,48 @@ interface RoomSetupGuideModalProps {
 const PATHS: SetupPath[] = [
   {
     id: 'claude_sub',
-    title: 'Claude Subscription',
+    title: 'Claude OAuth',
     model: 'claude',
-    summary: 'Best default if Claude subscription is available.',
-    bestFor: 'High quality strategy + execution with minimal setup.',
-    tradeoff: 'Most cost-effective. Rate limits depend on your plan tier.',
-    setup: 'Claude CLI is auto-detected and connected by 江湖.',
+    summary: '通过 Claude Code 登录，适合已经配置 Claude 的本机环境。',
+    bestFor: '需要稳定推理和执行的帮派。',
+    tradeoff: '额度取决于 Claude 账号方案。',
+    setup: '江湖会检测 Claude CLI，并引导你完成登录。',
   },
   {
     id: 'codex_sub',
-    title: 'Codex Subscription',
+    title: 'OpenAI Codex OAuth',
     model: 'codex',
-    summary: 'Best if you already run ChatGPT/Codex subscription.',
-    bestFor: 'Code-heavy loops and tool-driven execution.',
-    tradeoff: 'Cost-effective with a subscription. Quota depends on plan tier.',
-    setup: 'Codex CLI is auto-detected and connected by 江湖.',
+    summary: '使用 ChatGPT 账号 OAuth 登录 Codex，接入 GPT 系列模型。',
+    bestFor: '代码、工具调用和长链执行较多的帮派。',
+    tradeoff: '额度取决于 ChatGPT/Codex 账号方案。',
+    setup: '江湖会检测 Codex CLI，并引导你完成 OpenAI OAuth 登录。',
   },
   {
     id: 'openai_api',
     title: 'OpenAI API',
     model: 'openai:gpt-4o-mini',
-    summary: 'Use direct API key billing and explicit cost control.',
-    bestFor: 'Teams who need deterministic API-key based billing.',
-    tradeoff: 'Pay-per-token. You manage API keys and limits.',
-    setup: 'Add your OpenAI API key \u2014 江湖 validates it automatically.',
+    summary: '通过 OpenAI API key 接入，适合明确按量计费的场景。',
+    bestFor: '需要 API key 计费和独立限额控制的帮派。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '填写 OpenAI API key 后，江湖会自动保存并校验。',
   },
   {
     id: 'anthropic_api',
     title: 'Anthropic API',
     model: 'anthropic:claude-3-5-sonnet-latest',
-    summary: 'Direct Anthropic API path using key-based auth.',
-    bestFor: 'Users standardizing on Anthropic API accounts.',
-    tradeoff: 'Pay-per-token. You manage keys and limits.',
-    setup: 'Add your Anthropic API key \u2014 江湖 validates it automatically.',
+    summary: '通过 Anthropic API key 接入。',
+    bestFor: '已经统一使用 Anthropic API 账号的帮派。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '填写 Anthropic API key 后，江湖会自动保存并校验。',
   },
   {
     id: 'gemini_api',
     title: 'Gemini API',
     model: 'gemini:gemini-2.5-flash',
-    summary: 'Google Gemini via OpenAI-compatible endpoint.',
-    bestFor: 'Access to Gemini models with pay-per-token billing.',
-    tradeoff: 'Pay-per-token. You manage API keys and limits.',
-    setup: 'Add your Gemini API key \u2014 江湖 validates it automatically.',
+    summary: '通过兼容接口接入 Google Gemini。',
+    bestFor: '需要使用 Gemini 模型并按量计费的帮派。',
+    tradeoff: '按量计费，需要自行管理密钥和额度。',
+    setup: '填写 Gemini API key 后，江湖会自动保存并校验。',
   },
 ]
 
@@ -151,27 +151,27 @@ function getPathStatus(
 ): { label: string; ready: boolean } {
   switch (pathId) {
     case 'claude_sub':
-      if (!claude) return { label: 'wait. checking...', ready: false }
-      if (claude.connected === true) return { label: 'connected', ready: true }
-      if (claude.installed) return { label: 'installed, not connected', ready: false }
-      return { label: 'not installed', ready: false }
+      if (!claude) return { label: '正在检查...', ready: false }
+      if (claude.connected === true) return { label: '已登录', ready: true }
+      if (claude.installed) return { label: '已安装，未登录', ready: false }
+      return { label: '未安装', ready: false }
     case 'codex_sub':
-      if (!codex) return { label: 'wait. checking...', ready: false }
-      if (codex.connected === true) return { label: 'connected', ready: true }
-      if (codex.installed) return { label: 'installed, not connected', ready: false }
-      return { label: 'not installed', ready: false }
+      if (!codex) return { label: '正在检查...', ready: false }
+      if (codex.connected === true) return { label: '已登录', ready: true }
+      if (codex.installed) return { label: '已安装，未登录', ready: false }
+      return { label: '未安装', ready: false }
     case 'openai_api':
-      if (queenAuth?.provider === 'openai_api' && queenAuth.ready) return { label: 'API key ready', ready: true }
-      if (queenAuth?.provider === 'openai_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: 'API key ready', ready: true }
-      return { label: 'API key required', ready: false }
+      if (queenAuth?.provider === 'openai_api' && queenAuth.ready) return { label: '密钥可用', ready: true }
+      if (queenAuth?.provider === 'openai_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: '密钥可用', ready: true }
+      return { label: '需要密钥', ready: false }
     case 'anthropic_api':
-      if (queenAuth?.provider === 'anthropic_api' && queenAuth.ready) return { label: 'API key ready', ready: true }
-      if (queenAuth?.provider === 'anthropic_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: 'API key ready', ready: true }
-      return { label: 'API key required', ready: false }
+      if (queenAuth?.provider === 'anthropic_api' && queenAuth.ready) return { label: '密钥可用', ready: true }
+      if (queenAuth?.provider === 'anthropic_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: '密钥可用', ready: true }
+      return { label: '需要密钥', ready: false }
     case 'gemini_api':
-      if (queenAuth?.provider === 'gemini_api' && queenAuth.ready) return { label: 'API key ready', ready: true }
-      if (queenAuth?.provider === 'gemini_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: 'API key ready', ready: true }
-      return { label: 'API key required', ready: false }
+      if (queenAuth?.provider === 'gemini_api' && queenAuth.ready) return { label: '密钥可用', ready: true }
+      if (queenAuth?.provider === 'gemini_api' && (queenAuth.hasCredential || queenAuth.hasEnvKey)) return { label: '密钥可用', ready: true }
+      return { label: '需要密钥', ready: false }
   }
 }
 
@@ -189,12 +189,12 @@ function subPathProvider(pathId: 'claude_sub' | 'codex_sub'): ProviderName {
 
 function sessionStatusLabel(status: ProviderSessionStatus, kind: 'install' | 'auth'): string {
   switch (status) {
-    case 'starting': return 'Starting'
-    case '运行中': return kind === 'install' ? 'Installing' : 'Waiting for login'
-    case '已完成': return kind === 'install' ? 'Installed' : 'Connected'
+    case 'starting': return '正在启动'
+    case '运行中': return kind === 'install' ? '正在安装' : '等待登录'
+    case '已完成': return kind === 'install' ? '已安装' : '已连接'
     case '失败': return '失败'
-    case 'canceled': return 'Canceled'
-    case 'timeout': return 'Timed out'
+    case 'canceled': return '已取消'
+    case 'timeout': return '已超时'
     default: return status
   }
 }
@@ -227,7 +227,7 @@ function SessionLog({ lines }: { lines: ProviderSessionLine[] }): React.JSX.Elem
       className="max-h-32 overflow-y-auto rounded-lg border border-border-primary bg-surface-primary p-2 font-mono text-[11px] text-text-muted"
     >
       {recentLines.length === 0
-        ? 'Waiting for output...'
+        ? '等待输出...'
         : recentLines.map((line) => (
             <div key={line.id} className="whitespace-pre-wrap break-words">
               {line.text}
@@ -332,7 +332,7 @@ export function RoomSetupGuideModal({
         const key = apiKeyInput.trim()
         const status = getPathStatus(path.id, claude, codex, queenAuth)
         if (!status.ready && !key) {
-          setError(`Enter your ${path.id === 'openai_api' ? 'OpenAI' : path.id === 'gemini_api' ? 'Gemini' : 'Anthropic'} API key to continue.`)
+          setError(`请先填写 ${path.id === 'openai_api' ? 'OpenAI' : path.id === 'gemini_api' ? 'Gemini' : 'Anthropic'} API key。`)
           return
         }
         if (key) {
@@ -342,7 +342,7 @@ export function RoomSetupGuideModal({
       await onApplyModel(path.model)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to apply')
+      setError(err instanceof Error ? err.message : '应用失败')
     } finally {
       setBusy(false)
     }
@@ -356,8 +356,8 @@ export function RoomSetupGuideModal({
       <div className="w-full max-w-2xl max-h-[90vh] rounded-2xl bg-surface-primary shadow-2xl p-5 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Room Setup</h2>
-            <p className="text-xs text-text-muted">Configure {roomName} with the right model path.</p>
+            <h2 className="text-lg font-semibold text-text-primary">模型接入</h2>
+            <p className="text-xs text-text-muted">为 {roomName} 选择合适的模型通道。</p>
           </div>
           <button
             onClick={onClose}
@@ -372,7 +372,7 @@ export function RoomSetupGuideModal({
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="space-y-2">
             <p className="text-xs text-text-secondary">
-              Pick a model path. Subscriptions are the most cost-effective and connect automatically.
+              选择模型接入方式。OpenAI Codex OAuth 可通过 ChatGPT 账号登录；API 路径使用密钥。
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {PATHS.map((path) => {
@@ -398,12 +398,12 @@ export function RoomSetupGuideModal({
                       <span className="text-xs font-semibold text-text-primary">{path.title}</span>
                       {isRecommended && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-success-bg text-status-success font-semibold">
-                          Recommended
+                          推荐
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-text-muted mb-0.5">{path.summary}</p>
-                    <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === 'wait. checking...' ? 'animate-pulse' : ''}`}>
+                    <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === '正在检查...' ? 'animate-pulse' : ''}`}>
                       {status.label}
                     </span>
                   </button>
@@ -418,16 +418,16 @@ export function RoomSetupGuideModal({
             return (
               <div className="mt-2 px-3 py-2 rounded-lg bg-surface-secondary border border-border-primary">
                 <div className="text-xs text-text-secondary space-y-0.5">
-                  <p><span className="text-text-muted">Best for:</span> {path.bestFor}</p>
-                  <p><span className="text-text-muted">Setup:</span> {path.setup}</p>
-                  <p><span className="text-text-muted">Tradeoff:</span> {path.tradeoff}</p>
+                  <p><span className="text-text-muted">适合：</span>{path.bestFor}</p>
+                  <p><span className="text-text-muted">配置：</span>{path.setup}</p>
+                  <p><span className="text-text-muted">取舍：</span>{path.tradeoff}</p>
                 </div>
 
                 {/* Subscription path: Install / Connect / Disconnect */}
                 {isSubPath(selectedPathId) && selectedProvider && (
                   <div className="mt-3 pt-3 border-t border-border-primary space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === 'wait. checking...' ? 'animate-pulse' : ''}`}>
+                      <span className={`text-xs font-medium ${status.ready ? 'text-status-success' : 'text-text-muted'} ${status.label === '正在检查...' ? 'animate-pulse' : ''}`}>
                         {status.label}
                       </span>
                       {!providerSignal?.installed && (
@@ -436,7 +436,7 @@ export function RoomSetupGuideModal({
                           disabled={providerBusy || installSession?.active}
                           className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {installSession?.active ? 'Installing...' : 'Install'}
+                          {installSession?.active ? '安装中...' : '安装'}
                         </button>
                       )}
                       {providerSignal?.installed && (
@@ -447,7 +447,7 @@ export function RoomSetupGuideModal({
                               disabled={providerBusy || authSession?.active || installSession?.active}
                               className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              {authSession?.active ? 'Connecting...' : 'Connect'}
+                              {authSession?.active ? '登录中...' : selectedProvider === 'codex' ? 'OAuth 登录' : '连接'}
                             </button>
                           )}
                           <button
@@ -455,7 +455,7 @@ export function RoomSetupGuideModal({
                             disabled={providerBusy}
                             className="text-xs px-2.5 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            Disconnect
+                            断开
                           </button>
                         </>
                       )}
@@ -465,7 +465,7 @@ export function RoomSetupGuideModal({
                     {installSession && (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-text-muted">Install:</span>
+                          <span className="text-xs text-text-muted">安装：</span>
                           <span className={`text-xs ${sessionStatusColor(installSession.status)}`}>
                             {sessionStatusLabel(installSession.status, 'install')}
                           </span>
@@ -475,7 +475,7 @@ export function RoomSetupGuideModal({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Cancel
+                              取消
                             </button>
                           )}
                           {!installSession.active && (
@@ -484,7 +484,7 @@ export function RoomSetupGuideModal({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Refresh
+                              刷新
                             </button>
                           )}
                         </div>
@@ -496,7 +496,7 @@ export function RoomSetupGuideModal({
                     {authSession && (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-text-muted">Login:</span>
+                          <span className="text-xs text-text-muted">登录：</span>
                           <span className={`text-xs ${sessionStatusColor(authSession.status)}`}>
                             {sessionStatusLabel(authSession.status, 'auth')}
                           </span>
@@ -506,7 +506,7 @@ export function RoomSetupGuideModal({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Cancel
+                              取消
                             </button>
                           )}
                           {!authSession.active && (
@@ -515,13 +515,13 @@ export function RoomSetupGuideModal({
                               disabled={providerBusy}
                               className="text-xs px-2 py-0.5 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Refresh
+                              刷新
                             </button>
                           )}
                         </div>
                         {authSession.deviceCode && (
                           <div className="text-xs text-text-secondary">
-                            Code: <code className="px-1 py-0.5 rounded bg-surface-primary border border-border-primary">{authSession.deviceCode}</code>
+                            验证码：<code className="px-1 py-0.5 rounded bg-surface-primary border border-border-primary">{authSession.deviceCode}</code>
                           </div>
                         )}
                         {authSession.verificationUrl && (
@@ -531,7 +531,7 @@ export function RoomSetupGuideModal({
                             rel="noreferrer"
                             className="text-xs text-interactive hover:underline break-all inline-block"
                           >
-                            Open verification page
+                            打开验证页面
                           </a>
                         )}
                         <SessionLog lines={authSession.lines} />
@@ -554,7 +554,7 @@ export function RoomSetupGuideModal({
                     </label>
                     {currentMaskedKey && (
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="text-text-muted">Current:</span>
+                        <span className="text-text-muted">当前：</span>
                         <code className="px-1.5 py-0.5 rounded bg-surface-primary border border-border-primary text-text-secondary font-mono">
                           {currentMaskedKey}
                         </code>
@@ -567,21 +567,21 @@ export function RoomSetupGuideModal({
                       type="password"
                       value={apiKeyInput}
                       onChange={(e) => setApiKeyInput(e.target.value)}
-                      placeholder={status.ready ? 'Paste new key to replace' : 'Paste API key'}
+                      placeholder={status.ready ? '粘贴新密钥以替换' : '粘贴 API key'}
                       disabled={busy}
                       className="w-full px-2.5 py-2 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary text-text-primary placeholder:text-text-muted disabled:opacity-70"
                     />
                     <p className="text-xs text-text-muted">
                       {status.ready
-                        ? 'Key is validated and saved per room. Paste a new key to replace it.'
-                        : 'Key is validated and saved when you apply.'}
+                        ? '密钥已校验并保存到当前帮派。粘贴新密钥可替换。'
+                        : '点击应用时会校验并保存密钥。'}
                     </p>
                   </div>
                   )})()}
 
                 {!status.ready && isApiPath(selectedPathId) && !apiKeyInput.trim() && (
                   <p className="text-xs text-status-warning mt-2">
-                    This room needs an API key before the queen can start.
+                    当前帮派需要先配置 API key，帮主才能启动。
                   </p>
                 )}
               </div>
@@ -599,14 +599,14 @@ export function RoomSetupGuideModal({
             disabled={busy}
             className="px-3 py-1.5 text-xs text-text-muted hover:text-text-secondary border border-border-primary rounded-lg disabled:opacity-50"
           >
-            Cancel
+            取消
           </button>
           <button
             onClick={handleApply}
             disabled={busy || !selectedPathId}
             className="px-3 py-1.5 text-xs bg-interactive text-text-invert rounded-lg hover:bg-interactive-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Applying...' : '应用'}
+            {busy ? '应用中...' : '应用'}
           </button>
         </div>
       </div>

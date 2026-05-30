@@ -8,6 +8,60 @@ import { nudgeRoomWorkers } from '../nudge'
 
 export function registerQuorumTools(server: McpServer): void {
   server.registerTool(
+    'company_announce',
+    {
+      title: 'Announce Decision',
+      description: 'Announce a decision for the room. Becomes effective after 10 min unless a worker objects. '
+        + 'RESPONSE STYLE: Confirm briefly in 1 sentence.',
+      inputSchema: {
+        roomId: z.number().describe('The room ID'),
+        proposerId: z.number().optional().describe('Worker ID of the proposer'),
+        proposal: z.string().min(1).max(2000).describe('The decision text.'),
+        decisionType: z.enum(['strategy', 'resource', 'personnel', 'rule_change', 'low_impact'])
+          .describe('Type of decision')
+      }
+    },
+    async ({ roomId, proposerId, proposal, decisionType }) => {
+      const db = getMcpDatabase()
+      try {
+        const decision = announce(db, {
+          roomId, proposerId: proposerId ?? null,
+          proposal, decisionType: decisionType as DecisionType
+        })
+        if (decision.status === 'approved') {
+          return { content: [{ type: 'text' as const, text: `Decision auto-approved: "${proposal}"` }] }
+        }
+        nudgeRoomWorkers(roomId, proposerId ?? 0)
+        return { content: [{ type: 'text' as const, text: `Decision #${decision.id} announced: "${proposal}". Effective in 10 min unless objected.` }] }
+      } catch (e) {
+        return { content: [{ type: 'text' as const, text: (e as Error).message }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'company_object',
+    {
+      title: 'Object to Decision',
+      description: 'Object to an announced decision. RESPONSE STYLE: Confirm briefly in 1 sentence.',
+      inputSchema: {
+        decisionId: z.number().describe('The decision ID'),
+        workerId: z.number().describe('The worker ID'),
+        reason: z.string().max(1000).describe('Reason for objecting')
+      }
+    },
+    async ({ decisionId, workerId, reason }) => {
+      const db = getMcpDatabase()
+      try {
+        const result = object(db, decisionId, workerId, reason)
+        return { content: [{ type: 'text' as const, text: `Objection recorded on decision #${decisionId}. Status: ${result.status}` }] }
+      } catch (e) {
+        return { content: [{ type: 'text' as const, text: (e as Error).message }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
     'company_propose',
     {
       title: 'Announce Decision',

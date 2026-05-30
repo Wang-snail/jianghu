@@ -4,10 +4,11 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 
-const SOURCE_NAME = 'VoltAgent/awesome-agent-skills'
-const SOURCE_URL = 'https://github.com/VoltAgent/awesome-agent-skills'
-const IMPORT_PREFIX = '外部功法：'
-const INDEX_NAME = '江湖功法索引：Awesome Agent Skills'
+const SOURCE_NAME = 'libukai/awesome-agent-skills'
+const SOURCE_URL = 'https://github.com/libukai/awesome-agent-skills'
+const LEGACY_SOURCE_NAMES = ['VoltAgent/awesome-agent-skills', SOURCE_NAME]
+const LEGACY_IMPORT_PREFIX = '外部功法：'
+const INDEX_NAME = '藏经阁 Skill 索引：Awesome Agent Skills'
 
 const EXACT_TITLES = new Map([
   ['docx', 'Word 文档处理'],
@@ -261,7 +262,9 @@ function parseCatalog(markdown) {
       section = sectionMatch[1].replace(/<[^>]+>/g, '').trim()
       continue
     }
-    const itemMatch = line.match(/^- \*\*\[([^\]]+)\]\(([^)]+)\)\*\* - (.+)$/)
+    const itemMatch = line.match(/^- \*\*\[([^\]]+)\]\(([^)]+)\)\*\*\s*[-：:]\s*(.+)$/)
+      || line.match(/^- \[([^\]]+)\]\(([^)]+)\)\s*[：:]\s*(.+)$/)
+      || line.match(/^- \[([^\]]+)\]\(([^)]+)\)\s*-\s*(.+)$/)
     if (!itemMatch) continue
     skills.push({
       section,
@@ -320,12 +323,14 @@ function chineseTitleFor(skill) {
 function tokenize(skill) {
   const title = chineseTitleFor(skill)
   const category = sectionLabel(skill.section)
+  const pattern = inferPattern(skill)
   const raw = [
     skill.name,
     skill.section,
     skill.description,
     title,
     category,
+    pattern,
     skill.name.split('/').at(-1) ?? skill.name,
     skill.name.split('/')[0] ?? '',
   ].join(' ')
@@ -335,48 +340,96 @@ function tokenize(skill) {
     .split(/\s+/)
     .map(t => t.trim())
     .filter(t => t.length >= 2 && t.length <= 40)
-  return [...new Set([category, ...title.split(/\s+/), ...tokens])].slice(0, 24)
+  return [...new Set([category, pattern, 'awesome-agent-skills', 'SKILL.md', ...title.split(/\s+/), ...tokens])].slice(0, 28)
+}
+
+function inferPattern(skill) {
+  const text = [skill.name, skill.section, skill.description].join(' ').toLowerCase()
+  if (/review|audit|checklist|quality|security|安全|审查|审核|评审/.test(text)) return 'reviewer'
+  if (/template|generator|generate|report|doc|ppt|slide|sheet|pdf|image|video|content|写作|生成|模板|报告|文档/.test(text)) return 'generator'
+  if (/interview|clarif|requirement|planner|planning|strategy|office-hours|startup|需求|澄清|访谈|规划/.test(text)) return 'inversion'
+  if (/pipeline|workflow|automation|n8n|ci|deploy|test|release|流水线|流程|自动化/.test(text)) return 'pipeline'
+  return 'tool-wrapper'
+}
+
+function patternLabel(pattern) {
+  return {
+    'tool-wrapper': '工具封装',
+    generator: '生成器',
+    reviewer: '审查器',
+    inversion: '反转访谈',
+    pipeline: '流水线',
+  }[pattern] ?? '工具封装'
 }
 
 function contentFor(skill) {
+  const pattern = inferPattern(skill)
   const installHint = skill.url.includes('officialskills.sh')
-    ? '打开来源页可查看安装命令和 SKILL.md；常见形式是 `npx skills add <github-url> --skill <skill-name>`。'
-    : '打开来源仓库或目录查看 SKILL.md、README、示例和安装方式。'
+    ? '如果需要实际安装，先查看对应 Skill 页中的 SKILL.md 和安装命令；常见形式是 npx skills add。'
+    : '如果需要实际安装，先查看对应仓库或目录中的 SKILL.md、references、scripts、assets 和示例。'
 
   return [
-    `来源：${SOURCE_NAME}`,
-    `来源链接：${SOURCE_URL}`,
-    `技能链接：${skill.url}`,
-    `原始名称：${skill.name}`,
-    `原始分类：${skill.section}`,
+    '---',
+    `name: ${skill.name}`,
+    `description: ${skill.description}`,
+    'metadata:',
+    `  pattern: ${pattern}`,
+    `  pattern_label: ${patternLabel(pattern)}`,
+    `  category: ${sectionLabel(skill.section)}`,
+    `  origin_url: ${skill.url}`,
+    '---',
     '',
-    `## 适用场景`,
+    '## 适用场景',
     skill.description,
     '',
-    `## 调用方式`,
-    `当委托、镖单或弟子任务涉及「${chineseTitleFor(skill)}」「${skill.name}」或上述场景时，优先启用此功法。`,
-    installHint,
-    '如果本地尚未安装对应外部 skill，先阅读来源页或仓库，再把可复用步骤沉淀为本地功法版本。',
+    '## 触发条件',
+    `当委托、镖单或弟子任务涉及「${chineseTitleFor(skill)}」「${skill.name}」或上述场景时，才按需加载本 Skill。`,
     '',
-    `## 江湖约束`,
-    '先看当前项目现状，再决定是否调用外部资料；不要把本地可以完成的动作推给用户。',
-    '涉及账号、密钥、付费、外部服务写入或发布时，先走门规和确认流程。',
+    '## 使用配置',
+    '1. 先读取本条 SKILL.md 的描述和设计模式，确认是否匹配当前任务。',
+    '2. 如果这是工具封装模式，只在真正需要对应工具、框架或平台时加载详细规则。',
+    '3. 如果这是生成器、审查器、反转访谈或流水线模式，严格遵守它的输出结构、检查清单、提问顺序或步骤门控。',
+    `4. ${installHint}`,
+    '',
+    '## 目录约定',
+    '- SKILL.md：必需，保存触发说明、执行流程、边界和元数据。',
+    '- references/：可选，保存规范、清单、领域知识和详细参考资料。',
+    '- scripts/：可选，保存可复用脚本；执行前需要安全审查。',
+    '- assets/：可选，保存模板、样例、图片或固定输出结构。',
+    '',
+    '## 调用边界',
+    installHint,
+    '如果本地尚未安装对应外部 Skill，先把可复用步骤沉淀为本地版本，再交给弟子调用。',
+    '涉及账号、密钥、付费、外部服务写入、联网发布或脚本执行时，必须先走确认和审计流程。',
   ].join('\n')
 }
 
 function indexContent(total) {
   return [
-    `来源：${SOURCE_NAME}`,
-    `来源链接：${SOURCE_URL}`,
+    '---',
+    'name: awesome-agent-skills-index',
+    'description: 藏经阁 Skill 索引，用于按任务匹配可复用技能。',
+    'metadata:',
+    '  pattern: catalog',
+    '  category: Skill 索引',
+    `  origin_url: ${SOURCE_URL}`,
+    '---',
     '',
-    `已从 awesome-agent-skills 导入 ${total} 门外部功法索引。`,
+    `已从 awesome-agent-skills 导入 ${total} 个 Skill 索引。`,
     '',
     '## 用法',
-    '遇到具体技术、平台、文档、测试、设计、营销、数据、自动化等委托时，先在藏经阁查找名称为“外部功法：...”的匹配条目。',
-    '匹配后按该功法的来源链接、适用场景和调用方式执行；完成后把实际踩坑和本地化步骤沉淀为新的江湖功法。',
+    '遇到具体技术、平台、文档、测试、设计、营销、数据、自动化等委托时，先在藏经阁按 Skill 名称、分类、设计模式或标签查找匹配条目。',
+    '匹配后按该 Skill 的适用场景、触发条件和使用配置执行；完成后把实际踩坑和本地化步骤沉淀为新的本地 Skill。',
     '',
-    '## 治理',
-    '这些条目是外部功法索引，不代表外部工具已授权或已安装。需要联网、账号、密钥、写入外部系统或产生费用时，必须走江湖规矩。',
+    '## 设计模式',
+    '- 工具封装：按需加载工具或框架规则。',
+    '- 生成器：用模板生成稳定结构的交付物。',
+    '- 审查器：按清单和严重程度审查结果。',
+    '- 反转访谈：先澄清需求再开始行动。',
+    '- 流水线：按检查点推进复杂流程。',
+    '',
+    '## 调用边界',
+    '这些条目是 Skill 索引，不代表外部工具已授权、已安装或可以直接写入外部系统。需要联网、账号、密钥、脚本执行、外部发布或产生费用时，必须走江湖规矩。',
   ].join('\n')
 }
 
@@ -392,7 +445,7 @@ function targetRooms(db, roomId) {
 }
 
 function importForRoom(db, room, skills) {
-  const deleteImported = db.prepare('DELETE FROM skills WHERE room_id = ? AND (name LIKE ? OR name = ?)')
+  const deleteImported = db.prepare('DELETE FROM skills WHERE room_id = ? AND (name LIKE ? OR name = ? OR content LIKE ? OR content LIKE ?)')
   const insert = db.prepare(`
     INSERT INTO skills (room_id, name, content, activation_context, auto_activate, agent_created, created_by_worker_id)
     VALUES (?, ?, ?, ?, 1, 0, NULL)
@@ -412,17 +465,23 @@ function importForRoom(db, room, skills) {
     return `${title}（${next}）`
   }
   const run = db.transaction(() => {
-    deleteImported.run(room.id, `${IMPORT_PREFIX}%`, INDEX_NAME)
+    deleteImported.run(
+      room.id,
+      `${LEGACY_IMPORT_PREFIX}%`,
+      INDEX_NAME,
+      `%${LEGACY_SOURCE_NAMES[0]}%`,
+      `%${LEGACY_SOURCE_NAMES[1]}%`
+    )
     insert.run(
       room.id,
       INDEX_NAME,
       indexContent(skills.length),
-      JSON.stringify(['awesome-agent-skills', 'official skills', '技能库', '功法索引', '外部功法'])
+      JSON.stringify(['awesome-agent-skills', 'SKILL.md', 'Skill 索引', '工具封装', '生成器', '审查器', '反转访谈', '流水线'])
     )
     for (const skill of skills) {
       insert.run(
         room.id,
-        `${IMPORT_PREFIX}${displayTitle(skill)}`,
+        displayTitle(skill),
         contentFor(skill),
         JSON.stringify(tokenize(skill))
       )

@@ -196,6 +196,21 @@ describe('Room routes', () => {
       })
       expect(typeof (res.body as any).auth.ready).toBe('boolean')
     })
+
+    it('reports global queen model for legacy rooms whose leader model is blank', async () => {
+      queries.setSetting(ctx.db, 'queen_model', 'codex')
+      const createRes = await request(ctx, 'POST', '/api/rooms', { name: 'QueenAuthLegacyBlank' })
+      const roomId = (createRes.body as any).room.id
+      const queenId = (createRes.body as any).queen.id
+      queries.updateRoom(ctx.db, roomId, { workerModel: 'queen' } as Parameters<typeof queries.updateRoom>[2])
+      queries.updateWorker(ctx.db, queenId, { model: null } as unknown as Parameters<typeof queries.updateWorker>[2])
+
+      const res = await request(ctx, 'GET', `/api/rooms/${roomId}/queen`)
+
+      expect(res.status).toBe(200)
+      expect((res.body as any).model).toBe('codex')
+      expect((res.body as any).auth.provider).toBe('codex_subscription')
+    })
   })
 
   describe('POST /api/rooms/:id/start', () => {

@@ -11,9 +11,7 @@ Security updates are provided for the latest released minor line.
 
 ## Reporting a Vulnerability
 
-Please report suspected vulnerabilities privately by email:
-
-- hello@quoroom.ai
+Please report suspected vulnerabilities privately through the security contact listed by the current GitHub repository owner.
 
 Do not open public GitHub issues for security vulnerabilities.
 
@@ -26,9 +24,7 @@ When reporting, include:
 
 ## Anti-Scam and Impersonation
 
-If you find scam campaigns, impersonation, or fake token promotions using Quoroom branding, report privately:
-
-- hello@quoroom.ai
+If you find scam campaigns, impersonation, or fake token promotions using 江湖 branding, report privately through the repository security contact.
 
 When reporting, include:
 
@@ -38,12 +34,9 @@ When reporting, include:
 
 ### Official Sources
 
-Only trust:
+Only trust the repository URL and release artifacts published by the current maintainers.
 
-- `https://quoroom.ai`
-- `https://github.com/quoroom-ai`
-
-Quoroom will never ask for your seed phrase or private key.
+江湖 will never ask for your seed phrase, private key, or local model/API credentials outside your own deployment.
 
 ## Disclosure Timeline
 

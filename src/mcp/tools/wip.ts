@@ -25,7 +25,7 @@ export function registerWipTools(server: McpServer): void {
       const db = getMcpDatabase()
       const worker = queries.getWorker(db, workerId)
       if (!worker) {
-        return { content: [{ type: 'text' as const, text: `Worker #${workerId} not found.` }], isError: true }
+        return { content: [{ type: 'text' as const, text: `弟子 #${workerId} 不存在。` }], isError: true }
       }
       const trimmed = (status ?? '').trim()
       const isDone = !trimmed || trimmed.toLowerCase() === 'done' || trimmed.toLowerCase() === 'complete' || trimmed.toLowerCase() === 'completed'

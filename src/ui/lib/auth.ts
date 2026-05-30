@@ -1,9 +1,9 @@
 import { storageGet, storageSet, storageRemove } from './storage'
 
 const DEFAULT_PORT = 4700
-const CLOUD_TOKEN_STORAGE_KEY = 'zuzu_cloud_token'
+const CLOUD_TOKEN_STORAGE_KEY = 'jianghu_cloud_token'
 const CLOUD_TOKEN_QUERY_KEY = 'token'
-const CLOUD_MODE_FLAG_KEY = 'zuzu_cloud_mode'
+const CLOUD_MODE_FLAG_KEY = 'jianghu_cloud_mode'
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
 export type AppMode = 'local' | 'cloud'
@@ -55,7 +55,7 @@ export function getApiBase(): string {
   const host = location.hostname
   if (LOCAL_HOSTNAMES.has(host) || isLanHost(host)) return ''
   // Fallback for unusual local setups where UI origin differs from API origin.
-  const savedPort = storageGet('zuzu_port') || String(DEFAULT_PORT)
+  const savedPort = storageGet('jianghu_port') || String(DEFAULT_PORT)
   return `http://127.0.0.1:${savedPort}`
 }
 
@@ -122,7 +122,7 @@ async function fetchCloudToken(): Promise<string> {
 }
 
 async function fetchHandshakeToken(): Promise<string> {
-  const rawPort = (storageGet('zuzu_port') || String(DEFAULT_PORT)).trim()
+  const rawPort = (storageGet('jianghu_port') || String(DEFAULT_PORT)).trim()
   const port = /^\d+$/.test(rawPort) ? rawPort : String(DEFAULT_PORT)
   const candidates: string[] = [`${API_BASE}/api/auth/handshake`]
 

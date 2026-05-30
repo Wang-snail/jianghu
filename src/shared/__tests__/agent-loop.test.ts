@@ -111,7 +111,7 @@ describe('runCycle', () => {
     await runCycle(db, roomId, worker)
 
     const callArgs = mockExecuteAgent.mock.calls[0][0]
-    expect(callArgs.prompt).toContain('员工消息')
+    expect(callArgs.prompt).toContain('弟子消息')
     expect(callArgs.prompt).toContain('How should I proceed?')
   })
 
@@ -120,8 +120,19 @@ describe('runCycle', () => {
     await runCycle(db, roomId, worker)
 
     const callArgs = mockExecuteAgent.mock.calls[0][0]
-    expect(callArgs.prompt).toContain('天机阁驾驶舱契约')
-    expect(callArgs.prompt).toContain('创建弟子、分派镖单、监控交付')
+    expect(callArgs.prompt).toContain('帮主自动运行协议')
+    expect(callArgs.prompt).toContain('先用记忆')
+    expect(callArgs.prompt).toContain('复盘沉淀')
+    expect(callArgs.prompt).toContain('帮主作战室契约')
+    expect(callArgs.prompt).toContain('分析目标、制定计划、从客栈选择弟子、分派镖单、监控交付')
+    expect(callArgs.prompt).toContain('回忆相近经验')
+    expect(callArgs.prompt).toContain('写清上下游与输出格式')
+    expect(callArgs.prompt).toContain('做一次最小试运行')
+    expect(callArgs.prompt).toContain('禁止偏移事项')
+    expect(callArgs.prompt).toContain('帮主本地作战工具')
+    expect(callArgs.prompt).toContain('帮主不是天机阁')
+    expect(callArgs.prompt).toContain('天机阁固定技能只属于全局天机阁')
+    expect(callArgs.prompt).toContain('不要读取或执行 Codex 开发环境里的 Superpowers')
   })
 
   it('does not inject queen controller contract for non-queen workers', async () => {
@@ -130,31 +141,67 @@ describe('runCycle', () => {
     await runCycle(db, roomId, w2)
 
     const callArgs = mockExecuteAgent.mock.calls[0][0]
-    expect(callArgs.prompt).not.toContain('天机阁驾驶舱契约')
+    expect(callArgs.prompt).not.toContain('帮主作战室契约')
+    expect(callArgs.prompt).not.toContain('帮主自动运行协议')
+    expect(callArgs.prompt).toContain('弟子接单契约')
+    expect(callArgs.prompt).toContain('上游输入、下游接收方、输出格式限制')
+    expect(callArgs.prompt).toContain('不要读取或执行 Codex 开发环境里的 Superpowers')
   })
 
-  it('auto-creates one executor worker when queen is alone', async () => {
+  it('shows room task records to the leader as collaboration flow context', async () => {
+    const worker = queries.createWorker(db, {
+      name: '青衣甲',
+      role: 'executor',
+      systemPrompt: '执行分派镖单。',
+      roomId,
+    })
+    queries.createTask(db, {
+      name: '市场最小试运行',
+      description: '流程序号：1\n上游输入：用户委托\n下游接收方：帮主\n输出格式：Markdown 表格\n验收标准：可追溯',
+      prompt: '做最小样本',
+      triggerType: 'manual',
+      workerId: worker.id,
+      roomId,
+    })
+
+    const queen = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, queen)
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.prompt).toContain('协作流程与镖单记录')
+    expect(callArgs.prompt).toContain('镖单 #')
+    expect(callArgs.prompt).toContain('市场最小试运行')
+    expect(callArgs.prompt).toContain('青衣甲')
+    expect(callArgs.prompt).toContain('不要只凭记忆猜测')
+  })
+
+  it('auto-creates a specialist roster when queen is alone', async () => {
     expect(queries.listRoomWorkers(db, roomId).length).toBe(1)
     const worker = queries.getWorker(db, queenId)!
     await runCycle(db, roomId, worker)
 
     const roomWorkers = queries.listRoomWorkers(db, roomId)
     const nonQueen = roomWorkers.filter(w => w.id !== queenId)
-    expect(nonQueen).toHaveLength(1)
-    expect(nonQueen[0].role).toBe('executor')
-    expect(nonQueen[0].name).toMatch(/^executor-\d+$/)
+    expect(nonQueen).toHaveLength(4)
+    expect(nonQueen.map(w => w.name)).toEqual(expect.arrayContaining([
+      '情报采集弟子',
+      '竞品分析弟子',
+      '数据核验弟子',
+      '报告整合弟子',
+    ]))
+    expect(nonQueen.every(w => w.role !== 'executor')).toBe(true)
   })
 
-  it('does not create duplicate auto executors across cycles', async () => {
+  it('does not create duplicate specialist rosters across cycles', async () => {
     const worker = queries.getWorker(db, queenId)!
     await runCycle(db, roomId, worker)
     await runCycle(db, roomId, worker)
 
     const nonQueen = queries.listRoomWorkers(db, roomId).filter(w => w.id !== queenId)
-    expect(nonQueen).toHaveLength(1)
+    expect(nonQueen).toHaveLength(4)
   })
 
-  it('auto-created executor inherits codex model when room follows queen model', async () => {
+  it('auto-created specialists inherit codex model when room follows queen model', async () => {
     queries.updateRoom(db, roomId, { workerModel: 'queen' } as Parameters<typeof queries.updateRoom>[2])
     queries.updateWorker(db, queenId, { model: 'codex' } as Parameters<typeof queries.updateWorker>[2])
 
@@ -162,16 +209,27 @@ describe('runCycle', () => {
     await runCycle(db, roomId, worker)
 
     const nonQueen = queries.listRoomWorkers(db, roomId).filter(w => w.id !== queenId)
-    expect(nonQueen).toHaveLength(1)
-    expect(nonQueen[0].model).toBe('codex')
+    expect(nonQueen).toHaveLength(4)
+    expect(nonQueen.every(w => w.model === 'codex')).toBe(true)
   })
 
-  it('logs soft policy deviation and stores corrective WIP when queen executes web tools', async () => {
+  it('uses global queen model for legacy rooms whose leader model is blank', async () => {
+    queries.setSetting(db, 'queen_model', 'codex')
+    queries.updateRoom(db, roomId, { workerModel: 'queen' } as Parameters<typeof queries.updateRoom>[2])
+    queries.updateWorker(db, queenId, { model: null } as unknown as Parameters<typeof queries.updateWorker>[2])
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker)
+
+    expect(mockExecuteAgent.mock.calls[0][0].model).toBe('codex')
+  })
+
+  it('logs soft policy deviation and stores corrective WIP when queen executes browser actions', async () => {
     queries.updateWorker(db, queenId, { model: 'openai:gpt-4o-mini' } as Parameters<typeof queries.updateWorker>[2])
     queries.createCredential(db, roomId, 'openai_api_key', 'api_key', 'sk-test-key')
     mockExecuteAgent.mockImplementationOnce(async (opts: AgentExecutionOptions) => {
       if (opts.onConsoleLog) {
-        opts.onConsoleLog({ entryType: 'tool_call', content: '→ company_web_search({"query":"market size"})' })
+        opts.onConsoleLog({ entryType: 'tool_call', content: '→ company_browser({"action":"open"})' })
       }
       return {
         output: 'Execution completed.',
@@ -187,9 +245,9 @@ describe('runCycle', () => {
 
     expect(output).toContain('Execution completed')
     const activity = queries.getRoomActivity(db, roomId)
-    expect(activity.some(a => a.summary.includes('Queen policy deviation'))).toBe(true)
+    expect(activity.some(a => a.summary.includes('帮主越权提醒'))).toBe(true)
     const updated = queries.getWorker(db, queenId)!
-    expect(updated.wip).toContain('天机阁驾驶舱模式')
+    expect(updated.wip).toContain('帮主作战室模式')
     expect(updated.wip).toContain('本地镖单委派工具')
   })
 
@@ -229,7 +287,7 @@ describe('runCycle', () => {
     expect(callArgs.systemPrompt).toContain('本地软件执行')
     expect(callArgs.systemPrompt).toContain('Claude Code 式问题处理')
     expect(callArgs.systemPrompt).not.toContain('外部托管')
-    expect(callArgs.prompt).toContain('## 自动激活的功法')
+    expect(callArgs.prompt).toContain('## 自动激活的藏经阁 Skills')
     expect(callArgs.prompt).toContain('收入增长方法')
     expect(callArgs.prompt).toContain('优先选择可以直接产生收入的动作')
   })
@@ -246,6 +304,9 @@ describe('runCycle', () => {
     expect(callArgs.prompt).toContain('本轮 Hermes 工具范围')
     expect(toolNames).toContain('company_delegate_task')
     expect(toolNames).toContain('company_save_wip')
+    expect(toolNames).toContain('company_web_search')
+    expect(toolNames).toContain('company_web_fetch')
+    expect(toolNames).toContain('company_send_message')
     expect(toolNames).not.toContain('company_wallet_send')
     expect(toolNames).not.toContain('company_browser')
   })
@@ -388,6 +449,31 @@ describe('runCycle', () => {
 
     const session = queries.getAgentSession(db, queenId)
     expect(session?.sessionId).toBe('fresh-codex-session')
+  })
+
+  it('records a direct leader reply from final model output when no message tool lands', async () => {
+    queries.updateWorker(db, queenId, { model: 'codex' } as Parameters<typeof queries.updateWorker>[2])
+    queries.saveAgentSession(db, queenId, { sessionId: 'old-chat-session', model: 'codex' })
+    const incoming = queries.createEscalation(db, roomId, null, '协作流程创建完成了么？', queenId)
+    mockExecuteAgent.mockResolvedValueOnce({
+      output: '是，协作流程已经创建完成。下一步可以查看帮派作战室确认执行结果。',
+      exitCode: 0,
+      durationMs: 100,
+      sessionId: 'fresh-direct-session',
+      timedOut: false
+    })
+
+    const worker = queries.getWorker(db, queenId)!
+    await runCycle(db, roomId, worker, 8, { oneShot: true, directReplyEscalationId: incoming.id })
+
+    const updatedIncoming = queries.getEscalation(db, incoming.id)
+    expect(updatedIncoming?.status).toBe('resolved')
+    const replies = queries.listEscalations(db, roomId).filter(e => e.fromAgentId === queenId && e.toAgentId == null)
+    expect(replies.at(-1)?.question).toContain('协作流程已经创建完成')
+
+    const callArgs = mockExecuteAgent.mock.calls[0][0]
+    expect(callArgs.resumeSessionId).toBeUndefined()
+    expect(queries.getAgentSession(db, queenId)?.sessionId).toBe('old-chat-session')
   })
 })
 
@@ -598,6 +684,19 @@ describe('triggerAgent', () => {
     triggerAgent(db, roomId, queenId, { allowColdStart: true })
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(callCount).toBe(1)
+  })
+
+  it('uses a short one-shot cycle for direct leader replies', async () => {
+    const incoming = queries.createEscalation(db, roomId, null, '现在进展怎么样？', queenId)
+    triggerAgent(db, roomId, queenId, {
+      allowColdStart: true,
+      oneShot: true,
+      directReplyEscalationId: incoming.id,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(mockExecuteAgent).toHaveBeenCalledOnce()
+    expect(mockExecuteAgent.mock.calls[0][0].maxTurns).toBeLessThanOrEqual(12)
   })
 
   it('cold-starts when room launch is enabled', async () => {

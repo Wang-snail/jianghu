@@ -114,7 +114,7 @@ function queueTaskExecution(
     const worker = queries.getWorker(db, task.workerId)
     const room = task.roomId != null ? queries.getRoom(db, task.roomId) : null
     if (worker && !isAssignableWorker(worker, room?.queenWorkerId ?? null)) {
-      return { started: false, reason: '天机阁角色只负责调度，不能执行镖单' }
+      return { started: false, reason: '帮主只负责调度，不能执行镖单' }
     }
   }
 

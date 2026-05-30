@@ -61,6 +61,7 @@ beforeEach(async () => {
   const { registerGoalTools } = await import('../goals')
   const { registerSkillTools } = await import('../skills')
   const { registerSelfModTools } = await import('../self-mod')
+  const { registerWebTools } = await import('../web')
 
   registerSchedulerTools(mockServer as never)
   registerMemoryTools(mockServer as never)
@@ -71,6 +72,7 @@ beforeEach(async () => {
   registerGoalTools(mockServer as never)
   registerSkillTools(mockServer as never)
   registerSelfModTools(mockServer as never)
+  registerWebTools(mockServer as never)
 })
 
 afterEach(() => {
@@ -650,6 +652,40 @@ describe('company_list_decisions', () => {
     const handler = toolHandlers.get('company_list_decisions')!
     const result = await handler({ roomId: rooms[0].id })
     expect(getResponseText(result)).toContain('No decisions')
+  })
+})
+
+describe('Hermes MCP aliases', () => {
+  it('registers the quorum tool names assigned by Hermes profiles', () => {
+    expect(toolHandlers.has('company_announce')).toBe(true)
+    expect(toolHandlers.has('company_object')).toBe(true)
+  })
+
+  it('registers the web tool names assigned by Hermes profiles', () => {
+    expect(toolHandlers.has('company_web_search')).toBe(true)
+    expect(toolHandlers.has('company_web_fetch')).toBe(true)
+  })
+
+  it('announces and objects using Hermes tool names', async () => {
+    await toolHandlers.get('company_create_room')!({ name: '议事别名' })
+    const room = queries.listRooms(db)[0]
+    const queenId = room.queenWorkerId!
+
+    const announced = await toolHandlers.get('company_announce')!({
+      roomId: room.id,
+      proposerId: queenId,
+      proposal: '先做最小验证',
+      decisionType: 'strategy'
+    })
+    expect(getResponseText(announced)).toContain('Decision')
+
+    const decision = queries.listDecisions(db, room.id)[0]
+    const objected = await toolHandlers.get('company_object')!({
+      decisionId: decision.id,
+      workerId: queenId,
+      reason: '需要更多证据'
+    })
+    expect(getResponseText(objected)).toContain('Objection recorded')
   })
 })
 

@@ -1,0 +1,53 @@
+services:
+  jianghu:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4700
+      COMPANY_DEPLOYMENT_MODE: cloud
+      COMPANY_BIND_HOST: 0.0.0.0
+      COMPANY_DATA_DIR: /data
+      COMPANY_DB_PATH: /data/data.db
+      COMPANY_SECRET_KEY: ${COMPANY_SECRET_KEY:?set COMPANY_SECRET_KEY}
+      COMPANY_CLOUD_JWT_SECRET: ${COMPANY_CLOUD_JWT_SECRET:?set COMPANY_CLOUD_JWT_SECRET}
+      COMPANY_CLOUD_INSTANCE_ID: ${COMPANY_CLOUD_INSTANCE_ID:?set COMPANY_CLOUD_INSTANCE_ID}
+      COMPANY_ALLOWED_ORIGINS: ${COMPANY_ALLOWED_ORIGINS:?set COMPANY_ALLOWED_ORIGINS}
+      COMPANY_SKIP_MCP_REGISTER: "1"
+      COMPANY_NO_AUTO_OPEN: "1"
+      COMPANY_SKIP_MCP_NPM_INSTALL: "1"
+      COMPANY_CLOUD_API: ${COMPANY_CLOUD_API:-http://127.0.0.1:4700/api/local-sync-disabled}
+      JIANGHU_TELEGRAM_BOT_TOKEN: ${JIANGHU_TELEGRAM_BOT_TOKEN:-}
+      MIMO_API_KEY: ${MIMO_API_KEY:-}
+      MIMO_BASE_URL: ${MIMO_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - jianghu-data:/data
+    expose:
+      - "4700"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - jianghu
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  jianghu-data:
+  caddy-data:
+  caddy-config:

@@ -9,20 +9,20 @@ import type Database from 'better-sqlite3'
 import * as queries from '../../shared/db-queries'
 
 // ==================== 数据库键名 ====================
-const TELEGRAM_ID_KEY = 'zuzu_telegram_id'
-const TELEGRAM_USERNAME_KEY = 'zuzu_telegram_username'
-const TELEGRAM_FIRST_NAME_KEY = 'zuzu_telegram_first_name'
-const TELEGRAM_VERIFIED_AT_KEY = 'zuzu_telegram_verified_at'
-const TELEGRAM_VERIFICATION_CODE_KEY = 'zuzu_telegram_code'
-const TELEGRAM_VERIFICATION_EXPIRES_KEY = 'zuzu_telegram_expires'
+const TELEGRAM_ID_KEY = 'jianghu_telegram_id'
+const TELEGRAM_USERNAME_KEY = 'jianghu_telegram_username'
+const TELEGRAM_FIRST_NAME_KEY = 'jianghu_telegram_first_name'
+const TELEGRAM_VERIFIED_AT_KEY = 'jianghu_telegram_verified_at'
+const TELEGRAM_VERIFICATION_CODE_KEY = 'jianghu_telegram_code'
+const TELEGRAM_VERIFICATION_EXPIRES_KEY = 'jianghu_telegram_expires'
 
 // ==================== 配置 ====================
-const BOT_TOKEN = process.env.ZUZU_TELEGRAM_BOT_TOKEN || ''
-const BOT_USERNAME = process.env.ZUZU_TELEGRAM_BOT_USERNAME || 'chong_zu_bot'
+const BOT_TOKEN = process.env.JIANGHU_TELEGRAM_BOT_TOKEN || ''
+const BOT_USERNAME = process.env.JIANGHU_TELEGRAM_BOT_USERNAME || 'jianghu_bot'
 const VERIFICATION_CODE_TTL_MINUTES = 15
 
 if (!BOT_TOKEN) {
-  console.warn('⚠️  ZUZU_TELEGRAM_BOT_TOKEN 未设置 - 本地Telegram功能将不可用')
+  console.warn('JIANGHU_TELEGRAM_BOT_TOKEN 未设置 - 本地 Telegram 功能将不可用')
 }
 
 // ==================== 类型定义 ====================

@@ -4,23 +4,20 @@ import { TabBar, mainTabs, tabIcons, type Tab } from './components/TabBar'
 import { StatusPanel } from './components/StatusPanel'
 import { MemoryPanel } from './components/MemoryPanel'
 import { WorkersPanel } from './components/WorkersPanel'
-import { TasksPanel } from './components/TasksPanel'
+import { TrainingCampPanel } from './components/TrainingCampPanel'
 import { SettingsPanel } from './components/SettingsPanel'
 import { HelpPanel } from './components/HelpPanel'
-import { GoalsPanel } from './components/GoalsPanel'
 import { VotesPanel } from './components/VotesPanel'
 import { SkillsPanel } from './components/SkillsPanel'
 import { MessagesPanel } from './components/MessagesPanel'
 import { CredentialsPanel } from './components/CredentialsPanel'
 import { TransactionsPanel } from './components/TransactionsPanel'
-import { StationsPanel } from './components/StationsPanel'
 import { RoomSettingsPanel } from './components/RoomSettingsPanel'
 import { SwarmPanel } from './components/SwarmPanel'
 import { TianjiPanel } from './components/TianjiPanel'
 import { JinyiweiPanel } from './components/JinyiweiPanel'
 import { InnPanel } from './components/InnPanel'
 import { ConnectPage } from './components/ConnectPage'
-import { CreateRoomModal } from './components/CreateRoomModal'
 import { useNotifications } from './hooks/useNotifications'
 import { useDocumentVisible } from './hooks/useDocumentVisible'
 import { api } from './lib/client'
@@ -37,14 +34,14 @@ const ADVANCED_TABS = new Set<Tab>(
   mainTabs.filter((tab) => tab.advanced).map((tab) => tab.id)
 )
 
-const ALL_TAB_IDS: Tab[] = ['tianji', 'jinyiwei', 'swarm', 'inn', 'status', 'goals', 'votes', 'messages', 'workers', 'tasks', 'skills', 'credentials', 'transactions', 'stations', 'room-settings', 'memory', 'settings', 'help']
+const ALL_TAB_IDS: Tab[] = ['tianji', 'jinyiwei', 'swarm', 'inn', 'status', 'goals', 'votes', 'messages', 'workers', 'training', 'tasks', 'skills', 'credentials', 'transactions', 'room-settings', 'memory', 'settings', 'help']
 
 const DEFAULT_PORT = '4700'
 const isRemoteOrigin = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
 const shouldProbeLocalServer = APP_MODE === 'local' && isRemoteOrigin && !isLanHost()
 
 function getLocalPort(): string {
-  return storageGet('zuzu_port') || DEFAULT_PORT
+  return storageGet('jianghu_port') || DEFAULT_PORT
 }
 
 function parseCreatedRoomId(payload: unknown): number | null {
@@ -110,8 +107,8 @@ async function probeLocalServer(port: string): Promise<boolean> {
 
 function App(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>(() => {
-    const saved = storageGet('zuzu_tab')
-    if (saved === 'room-settings') return 'status'
+    const saved = storageGet('jianghu_tab')
+    if (saved === 'room-settings' || saved === 'goals') return 'status'
     if (saved && ALL_TAB_IDS.includes(saved as Tab)) return saved as Tab
     return 'swarm'
   })
@@ -125,17 +122,16 @@ function App(): React.JSX.Element {
 
   // Global room selection
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(() => {
-    const saved = storageGet('zuzu_room')
+    const saved = storageGet('jianghu_room')
     return saved ? Number(saved) : null
   })
   const [expandedRoomId, setExpandedRoomId] = useState<number | null>(() => {
-    const saved = storageGet('zuzu_room')
+    const saved = storageGet('jianghu_room')
     return saved ? Number(saved) : null
   })
   const [rooms, setRooms] = useState<Room[]>([])
   const [roomsLoaded, setRoomsLoaded] = useState(false)
   const [queenRunning, setQueenRunning] = useState<Record<number, boolean>>({})
-  const [showCreateRoomModal, setShowCreateRoomModal] = useState(false)
   const [swarmInviteNonce, setSwarmInviteNonce] = useState(0)
   const [globalScopeTab, setGlobalScopeTab] = useState<Tab | null>(null)
   const [roomActionPending, setRoomActionPending] = useState<number | null>(null)
@@ -395,7 +391,7 @@ function App(): React.JSX.Element {
   function handleTabChange(t: Tab): void {
     setTab(t)
     tabRef.current = t
-    storageSet('zuzu_tab', t)
+    storageSet('jianghu_tab', t)
     if (t === 'messages') {
       setMessagesUnread(0)
       if (selectedRoomId !== null) void api.roomMessages.markAllRead(selectedRoomId).catch(() => {})
@@ -413,9 +409,9 @@ function App(): React.JSX.Element {
   function handleRoomChange(roomId: number | null): void {
     setSelectedRoomId(roomId)
     if (roomId !== null) {
-      storageSet('zuzu_room', String(roomId))
+      storageSet('jianghu_room', String(roomId))
     } else {
-      storageRemove('zuzu_room')
+      storageRemove('jianghu_room')
     }
   }
 
@@ -487,7 +483,6 @@ function App(): React.JSX.Element {
       setExpandedRoomId(resolvedRoomId)
     }
     handleTabChange('status')
-    setShowCreateRoomModal(false)
   }
 
   const selectedRoom = rooms.find(r => r.id === selectedRoomId) ?? null
@@ -507,8 +502,11 @@ function App(): React.JSX.Element {
       case 'tianji':
         return <TianjiPanel
           onOpenCommission={handleOpenInvite}
-          onCreateGang={() => setShowCreateRoomModal(true)}
           onOpenOverview={() => handlePublicPlaceTab('swarm')}
+          onRoomsChanged={async () => {
+            await loadRooms()
+            void refreshQueenStates()
+          }}
         />
       case 'jinyiwei':
         return <JinyiweiPanel />
@@ -517,7 +515,7 @@ function App(): React.JSX.Element {
       case 'status':
         return <StatusPanel onNavigate={(t) => handleTabChange(t as Tab)} advancedMode={advancedMode} roomId={selectedRoomId} />
       case 'goals':
-        return <GoalsPanel roomId={selectedRoomId} autonomyMode="semi" />
+        return <StatusPanel onNavigate={(t) => handleTabChange(t as Tab)} advancedMode={advancedMode} roomId={selectedRoomId} />
       case 'votes':
         return <VotesPanel roomId={selectedRoomId} autonomyMode="semi" />
       case 'messages':
@@ -526,8 +524,10 @@ function App(): React.JSX.Element {
         return <MemoryPanel roomId={selectedRoomId} />
       case 'workers':
         return <WorkersPanel roomId={selectedRoomId} autonomyMode="semi" />
+      case 'training':
+        return <TrainingCampPanel roomId={selectedRoomId} />
       case 'tasks':
-        return <TasksPanel roomId={selectedRoomId} autonomyMode="semi" />
+        return <MessagesPanel roomId={selectedRoomId} autonomyMode="semi" mode="inter-room" title="龙门镖局" />
       case 'skills':
         return <SkillsPanel roomId={globalScopeTab === 'skills' ? null : selectedRoomId} autonomyMode="semi" />
       case 'credentials':
@@ -612,7 +612,7 @@ function App(): React.JSX.Element {
           )}
         </div>
         <button
-          onClick={() => window.open('mailto:hello@zuzu.io?subject=Connection issue&body=I am having trouble connecting to 江湖.')}
+          onClick={() => window.open('mailto:security@example.com?subject=Connection issue&body=I am having trouble connecting to 江湖.')}
           className="mt-3 text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
           联系开发者
@@ -731,12 +731,6 @@ function App(): React.JSX.Element {
             {tabIcons.transactions}
             钱庄
             <span className="ml-auto text-[10px] text-text-muted">管钱</span>
-          </button>
-          <button
-            onClick={() => setShowCreateRoomModal(true)}
-            className="w-full px-3 py-1.5 text-sm text-left text-interactive hover:text-interactive-hover rounded-lg hover:bg-interactive-bg transition-colors"
-          >
-            + 新建临时帮派
           </button>
         </div>
 
@@ -857,7 +851,7 @@ function App(): React.JSX.Element {
             <span className="text-sm text-brand-700 flex-1">
               您来得早！我们每天都在完善江湖并经常发布新版本。如果有什么问题，{' '}
               <a
-                href="mailto:hello@zuzu.io?subject=Bug report&body=Hi, I found an issue in 江湖:"
+                href="https://github.com/Wang-snail/jianghu/issues/new"
                 className="underline hover:no-underline font-medium"
               >
                 请告诉我们
@@ -866,7 +860,7 @@ function App(): React.JSX.Element {
             <button
               onClick={() => {
                 setEarlyBannerDismissed(true)
-                storageSet('zuzu_early_banner_dismissed', 'true')
+                storageSet('jianghu_early_banner_dismissed', 'true')
               }}
               className="text-brand-400 hover:text-brand-600 text-lg leading-none shrink-0 transition-colors"
             >
@@ -913,7 +907,7 @@ function App(): React.JSX.Element {
             <button
               onClick={() => {
                 setLocalModeDismissed(true)
-                storageSet('zuzu_local_mode_dismissed', 'true')
+                storageSet('jianghu_local_mode_dismissed', 'true')
               }}
               className="text-status-info hover:text-blue-800 dark:hover:text-blue-300 text-lg leading-none shrink-0 transition-colors"
             >
@@ -957,7 +951,7 @@ function App(): React.JSX.Element {
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 5h14M3 10h14M3 15h14" /></svg>
             </button>
             <span className="text-sm font-semibold text-text-primary">
-              {tab === 'tianji' ? '天机阁' : tab === 'jinyiwei' ? '锦衣卫' : tab === 'swarm' ? '我的江湖' : tab === 'inn' ? '客栈' : tab === 'skills' ? '藏经阁' : tab === 'transactions' ? '钱庄' : tab === 'settings' ? '全局设置' : tab === 'help' ? '江湖说明' : '江湖'}
+              {tab === 'tianji' ? '天机阁' : tab === 'jinyiwei' ? '锦衣卫' : tab === 'swarm' ? '我的江湖' : tab === 'inn' ? '客栈' : tab === 'skills' ? '藏经阁' : tab === 'transactions' ? '钱庄' : tab === 'training' ? '训练营' : tab === 'room-settings' ? '帮派设置' : tab === 'settings' ? '全局设置' : tab === 'help' ? '江湖说明' : '江湖'}
             </span>
           </div>
         )}
@@ -966,13 +960,6 @@ function App(): React.JSX.Element {
           {renderPanel()}
         </div>
       </div>
-
-      {showCreateRoomModal && (
-        <CreateRoomModal
-          onClose={() => setShowCreateRoomModal(false)}
-          onCreate={(room) => void handleRoomCreated(room)}
-        />
-      )}
     </div>
   )
 }

@@ -18,7 +18,12 @@ beforeEach(() => {
   // Clear clerk messages and relevant settings between tests
   ctx.db.prepare("DELETE FROM clerk_messages").run()
   ctx.db.prepare("DELETE FROM settings WHERE key LIKE 'clerk_%'").run()
+  ctx.db.prepare("DELETE FROM settings WHERE key IN ('global_model', 'queen_model')").run()
   delete process.env.MIMO_API_KEY
+  delete process.env.OPENAI_API_KEY
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.GEMINI_API_KEY
   // Prevent auto-configure from detecting local CLI installs by default
   vi.spyOn(providerCli, 'probeProviderInstalled').mockReturnValue({ installed: false })
   vi.spyOn(providerCli, 'probeProviderConnected').mockReturnValue(null)
@@ -64,6 +69,67 @@ describe('Clerk routes', () => {
 
       const val = queries.getSetting(ctx.db, 'clerk_last_user_message_at')
       expect(val).toBeTruthy()
+    })
+  })
+
+  describe('POST /api/clerk/chat', () => {
+    it('creates a gang directly when the user clearly asks for one', async () => {
+      const before = queries.listRooms(ctx.db).length
+
+      const res = await request(ctx, 'POST', '/api/clerk/chat', {
+        message: '新建一个帮派，用于做亚马逊市场分析，注意需要分工序安排弟子'
+      })
+
+      expect(res.status).toBe(200)
+      const body = res.body as any
+      expect(body.response).toContain('已创建')
+      expect(body.response).toContain('亚马逊市场分析')
+      expect(body.response).toContain('帮主启动工序已建立')
+
+      const rooms = queries.listRooms(ctx.db)
+      expect(rooms.length).toBe(before + 1)
+      const created = rooms.find((room) => room.goal?.includes('亚马逊市场分析'))
+      expect(created?.name).toContain('亚马逊市场分析帮')
+      expect(created?.status).toBe('active')
+      expect(queries.listTasks(ctx.db, created!.id).map(task => task.name)).toEqual(expect.arrayContaining([
+        '启动工序1：目标拆分与验收标准',
+        '启动工序2：人员规划与客栈选人',
+        '启动工序3：弟子培训与功法配置',
+        '启动工序4：协作流程与最小试运行',
+      ]))
+    })
+
+    it('understands named gang creation without the word 帮派', async () => {
+      const before = queries.listRooms(ctx.db).length
+
+      const res = await request(ctx, 'POST', '/api/clerk/chat', {
+        message: '新建空调市场分析帮，参考除湿机市场分析的方式做空调市场分析。'
+      })
+
+      expect(res.status).toBe(200)
+      const body = res.body as any
+      expect(body.response).toContain('已创建')
+      expect(body.response).toContain('空调市场分析帮')
+
+      const rooms = queries.listRooms(ctx.db)
+      expect(rooms.length).toBe(before + 1)
+      const created = rooms.find((room) => room.name === '空调市场分析帮')
+      expect(created?.goal).toContain('参考除湿机市场分析')
+      expect(created?.goal).toContain('空调市场分析')
+      expect(created?.status).toBe('active')
+    })
+
+    it('asks for a goal before creating a gang when the intent is incomplete', async () => {
+      const before = queries.listRooms(ctx.db).length
+
+      const res = await request(ctx, 'POST', '/api/clerk/chat', {
+        message: '帮我新建一个帮派'
+      })
+
+      expect(res.status).toBe(200)
+      const body = res.body as any
+      expect(body.response).toContain('委托目标')
+      expect(queries.listRooms(ctx.db).length).toBe(before)
     })
   })
 
@@ -160,6 +226,9 @@ describe('Clerk routes', () => {
       vi.spyOn(providerCli, 'probeProviderInstalled').mockImplementation((p) =>
         p === 'claude' ? { installed: true, version: '1.0.0' } : { installed: false }
       )
+      vi.spyOn(providerCli, 'probeProviderConnected').mockImplementation((p) =>
+        p === 'claude' ? true : null
+      )
 
       const res = await request(ctx, 'GET', '/api/clerk/status')
       expect(res.status).toBe(200)
@@ -211,6 +280,9 @@ describe('Clerk routes', () => {
     it('persists auto-configured model so second call skips detection', async () => {
       vi.spyOn(providerCli, 'probeProviderInstalled').mockImplementation((p) =>
         p === 'claude' ? { installed: true, version: '1.0.0' } : { installed: false }
+      )
+      vi.spyOn(providerCli, 'probeProviderConnected').mockImplementation((p) =>
+        p === 'claude' ? true : null
       )
 
       const first = await request(ctx, 'GET', '/api/clerk/status')
@@ -264,8 +336,9 @@ describe('Clerk routes', () => {
       expect(res.status).toBe(200)
       expect((res.body as any).model).toBe('claude')
 
-      const stored = queries.getSetting(ctx.db, 'clerk_model')
-      expect(stored).toBe('claude')
+      expect(queries.getSetting(ctx.db, 'global_model')).toBe('claude')
+      expect(queries.getSetting(ctx.db, 'clerk_model')).toBe('claude')
+      expect(queries.getSetting(ctx.db, 'queen_model')).toBe('claude')
     })
 
     it('accepts empty body without error', async () => {

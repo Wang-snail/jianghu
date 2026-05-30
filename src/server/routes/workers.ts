@@ -3,12 +3,18 @@ import type { AgentState } from '../../shared/types'
 import * as queries from '../../shared/db-queries'
 import { eventBus } from '../event-bus'
 import { triggerAgent, pauseAgent, isRoomLaunchEnabled } from '../../shared/agent-loop'
+import { isAssignableWorker, isInnWorker } from '../../shared/worker-roles'
 
 export function registerWorkerRoutes(router: Router): void {
   router.post('/api/workers', (ctx) => {
     const body = ctx.body as Record<string, unknown> || {}
     if (!body.name || typeof body.name !== 'string') return { status: 400, error: 'name is required' }
     if (!body.systemPrompt || typeof body.systemPrompt !== 'string') return { status: 400, error: 'systemPrompt is required' }
+
+    const requestedRoomId = body.roomId != null ? Number(body.roomId) : undefined
+    if (requestedRoomId != null && Number.isFinite(requestedRoomId)) {
+      return { status: 400, error: '新弟子必须先进入客栈，再从客栈调入帮派。' }
+    }
 
     const worker = queries.createWorker(ctx.db, {
       name: body.name,
@@ -18,7 +24,7 @@ export function registerWorkerRoutes(router: Router): void {
       isDefault: body.isDefault as boolean | undefined,
       cycleGapMs: body.cycleGapMs != null ? Number(body.cycleGapMs) : undefined,
       maxTurns: body.maxTurns != null ? Number(body.maxTurns) : undefined,
-      roomId: body.roomId as number | undefined,
+      roomId: undefined,
       agentState: body.agentState as AgentState | undefined
     })
     eventBus.emit('workers', 'worker:created', worker)
@@ -32,16 +38,29 @@ export function registerWorkerRoutes(router: Router): void {
 
   router.get('/api/workers/:id', (ctx) => {
     const worker = queries.getWorker(ctx.db, Number(ctx.params.id))
-    if (!worker) return { status: 404, error: 'Worker not found' }
+    if (!worker) return { status: 404, error: '弟子不存在。' }
     return { data: worker }
   })
 
   router.patch('/api/workers/:id', (ctx) => {
     const id = Number(ctx.params.id)
     const worker = queries.getWorker(ctx.db, id)
-    if (!worker) return { status: 404, error: 'Worker not found' }
+    if (!worker) return { status: 404, error: '弟子不存在。' }
 
     const body = ctx.body as Record<string, unknown> || {}
+    if (body.roomId !== undefined) {
+      const nextRoomId = body.roomId == null || body.roomId === '' ? null : Number(body.roomId)
+      if (nextRoomId != null) {
+        if (!Number.isInteger(nextRoomId) || !queries.getRoom(ctx.db, nextRoomId)) {
+          return { status: 400, error: '目标帮派不存在。' }
+        }
+        if (!isInnWorker(worker)) {
+          return { status: 400, error: '只能从客栈调入弟子；已在其他帮派或系统角色不能被选择。' }
+        }
+      } else if (!isAssignableWorker(worker)) {
+        return { status: 400, error: '系统角色不能退回客栈。' }
+      }
+    }
     queries.updateWorker(ctx.db, id, body)
     const updated = queries.getWorker(ctx.db, id)
     eventBus.emit('workers', 'worker:updated', updated)
@@ -51,7 +70,7 @@ export function registerWorkerRoutes(router: Router): void {
   router.delete('/api/workers/:id', (ctx) => {
     const id = Number(ctx.params.id)
     const worker = queries.getWorker(ctx.db, id)
-    if (!worker) return { status: 404, error: 'Worker not found' }
+    if (!worker) return { status: 404, error: '弟子不存在。' }
 
     queries.deleteWorker(ctx.db, id)
     eventBus.emit('workers', 'worker:deleted', { id })
@@ -61,13 +80,13 @@ export function registerWorkerRoutes(router: Router): void {
   router.post('/api/workers/:id/start', (ctx) => {
     const id = Number(ctx.params.id)
     const worker = queries.getWorker(ctx.db, id)
-    if (!worker) return { status: 404, error: 'Worker not found' }
-    if (!worker.roomId) return { status: 400, error: 'Worker has no room' }
+    if (!worker) return { status: 404, error: '弟子不存在。' }
+    if (!worker.roomId) return { status: 400, error: '弟子尚未加入帮派。' }
     const room = queries.getRoom(ctx.db, worker.roomId)
-    if (!room) return { status: 404, error: 'Room not found' }
-    if (room.status !== 'active') return { status: 400, error: 'Room is not active' }
+    if (!room) return { status: 404, error: '帮派不存在。' }
+    if (room.status !== 'active') return { status: 400, error: '帮派尚未运行。' }
     if (!isRoomLaunchEnabled(worker.roomId)) {
-      return { status: 409, error: 'Room runtime is not started. Start the room first.' }
+      return { status: 409, error: '帮派运行尚未启动，请先启动帮派。' }
     }
     triggerAgent(ctx.db, worker.roomId, id, {
       onCycleLogEntry: (entry) => eventBus.emit(`cycle:${entry.cycleId}`, 'cycle:log', entry),
@@ -80,7 +99,7 @@ export function registerWorkerRoutes(router: Router): void {
   router.post('/api/workers/:id/stop', (ctx) => {
     const id = Number(ctx.params.id)
     const worker = queries.getWorker(ctx.db, id)
-    if (!worker) return { status: 404, error: 'Worker not found' }
+    if (!worker) return { status: 404, error: '弟子不存在。' }
     pauseAgent(ctx.db, id)
     eventBus.emit('workers', 'worker:stopped', { id })
     return { data: { ok: true, running: false } }

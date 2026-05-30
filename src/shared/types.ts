@@ -248,6 +248,7 @@ export interface CreateRoomInput {
   name: string
   goal?: string
   queenSystemPrompt?: string
+  queenModel?: string
   referredByCode?: string
   config?: Partial<RoomConfig>
 }
@@ -303,6 +304,7 @@ export interface Goal {
   status: GoalStatus
   parentGoalId: number | null
   assignedWorkerId: number | null
+  expectedCompletedAt: string | null
   progress: number
   createdAt: string
   updatedAt: string
@@ -368,6 +370,45 @@ export interface Escalation {
   status: EscalationStatus
   createdAt: string
   resolvedAt: string | null
+}
+
+export type TrainingAdjustmentStatus = 'queued' | 'training' | 'absorbed' | 'attention'
+
+export interface TrainingRoleConfig {
+  roleName: string
+  mission: string
+  responsibilities: string[]
+  inputRequirements: string[]
+  outputFormat: string
+  acceptanceCriteria: string[]
+  collaborationRules: string[]
+}
+
+export interface TrainingToolConfig {
+  allowedTools: string[]
+  disallowedTools: string[]
+  approvalRequiredTools: string[]
+  callingRules: string[]
+}
+
+export interface TrainingConfig {
+  schema: 'jianghu.training.worker.v1'
+  roleDefinition: TrainingRoleConfig
+  toolCalling: TrainingToolConfig
+  updatedAt: string
+}
+
+export interface TrainingAdjustment {
+  id: number
+  roomId: number
+  escalationId: number
+  workerId: number | null
+  status: TrainingAdjustmentStatus
+  progress: number
+  note: string | null
+  configJson: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 // ─── Chat Types ─────────────────────────────────────────────

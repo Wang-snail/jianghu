@@ -18,7 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   revenue: '财气入账',
   expense: '财气支出',
   transfer: '财气转移',
-  station_cost: '灵气资源成本',
+  station_cost: '历史资源成本',
   salary: '赏银',
   role_cost: '弟子协作耗气',
   company_transfer: '帮派间财气流动',
@@ -29,40 +29,6 @@ type BankRecordKind = 'salary' | 'income' | 'cost' | 'company_transfer'
 interface TransactionsPanelProps {
   roomId: number | null
 }
-
-const RESOURCE_RULES = [
-  ['铜钱', '基础推理和文本生成', '充足，用于日常执行；不能替代银两和金票。'],
-  ['银两', '工具调用、搜索和数据处理', '按子任务分配；超支先由帮主调配。'],
-  ['金票', '高成本模型、外部 API 和长时间任务', '稀缺，只能用于关键路径。'],
-] as const
-
-const SETTLEMENT_RULES = [
-  ['结余', '子任务结余 60% 回收钱庄，40% 折算成效率积分写入弟子履历。'],
-  ['轻微超支', '超支 10% 以内继续执行，但扣减成本效率。'],
-  ['中度超支', '超支 10%-30% 降级使用低成本功法，并记录在档。'],
-  ['严重超支', '超支 30% 以上挂红旗，本次不参与声望奖励池。'],
-] as const
-
-const PERFORMANCE_DIMENSIONS = [
-  ['领域声望', '看这个岗位的完成质量，不代表所有领域都强。'],
-  ['稳定度', '看返工率、格式错误率和输出一致性。'],
-  ['协作度', '看是否准时、不阻塞下游、交接是否可用。'],
-  ['成本效率', '看完成质量与实际消耗预算的比例。'],
-  ['近期表现', '最近 5 次权重更高，防止旧声望长期躺赢。'],
-] as const
-
-const MATCHING_POLICIES = [
-  ['质量优先', '领域声望 50% + 稳定度 30% + 成本效率 20%'],
-  ['效率优先', '成本效率 50% + 近期表现 30% + 领域声望 20%'],
-  ['均衡优先', '五个维度均权，适合大多数委托。'],
-] as const
-
-const TRUST_LEVELS = [
-  ['新人', '0-40', '只领铜钱，银两和金票需帮主签批。'],
-  ['普通', '40-70', '可领铜钱和银两，金票需签批。'],
-  ['老手', '70-85', '三类资源均可领，有小额调配权。'],
-  ['宗师', '85+', '可在帮派内自主追加 5% 预算缓冲。'],
-] as const
 
 function money(n: number): string {
   return `${n.toFixed(2)} 财气`
@@ -143,55 +109,6 @@ export function TransactionsPanel({ roomId }: TransactionsPanelProps): React.JSX
           <p className="text-xs text-text-muted mt-1">
             江湖公共资源预算场所。钱庄只管财气、预算、流水、赏银和成本效率，不处理真实世界资金。
           </p>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          {RESOURCE_RULES.map(([name, use, rule]) => (
-            <div key={name} className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-              <div className="text-sm font-semibold text-text-primary">{name}</div>
-              <div className="mt-1 text-xs text-text-secondary">{use}</div>
-              <div className="mt-2 rounded-lg bg-surface-primary px-2 py-1.5 text-xs text-text-muted">{rule}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-            <div className="text-sm font-semibold text-text-primary">预算流转</div>
-            <div className="mt-3 grid gap-2 text-xs text-text-secondary md:grid-cols-4">
-              <div className="rounded-lg bg-surface-primary p-2">钱庄按难度把整包预算拨给帮主。</div>
-              <div className="rounded-lg bg-surface-primary p-2">帮主按子任务拆给弟子，弟子不能直接找钱庄要钱。</div>
-              <div className="rounded-lg bg-surface-primary p-2">执行中记录消耗，轻微超支由帮主内部调配。</div>
-              <div className="rounded-lg bg-surface-primary p-2">超过权限上报天机处，选择追加、降级或暂停。</div>
-            </div>
-            <div className="mt-3 rounded-lg bg-surface-primary p-2 text-xs text-text-muted">
-              钱是任务级资源，用完即结算；声望是弟子履历资产，跨帮派长期生效。
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-            <div className="text-sm font-semibold text-text-primary">结算激励</div>
-            <div className="mt-2 space-y-2">
-              {SETTLEMENT_RULES.map(([label, text]) => (
-                <div key={label} className="rounded-lg bg-surface-primary p-2">
-                  <div className="text-xs font-semibold text-text-primary">{label}</div>
-                  <div className="mt-1 text-xs leading-5 text-text-muted">{text}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-          <div className="text-sm font-semibold text-text-primary">履历绩效如何参与用钱</div>
-          <div className="mt-2 grid gap-2 md:grid-cols-5">
-            {PERFORMANCE_DIMENSIONS.map(([label, text]) => (
-              <div key={label} className="rounded-lg bg-surface-primary p-2">
-                <div className="text-xs font-semibold text-text-primary">{label}</div>
-                <div className="mt-1 text-xs leading-5 text-text-muted">{text}</div>
-              </div>
-            ))}
-          </div>
         </div>
 
         <div className="rounded-lg border border-border-primary bg-surface-secondary overflow-hidden">
@@ -292,52 +209,6 @@ export function TransactionsPanel({ roomId }: TransactionsPanelProps): React.JSX
           <div className="text-xs text-text-muted">赏银 / 协作耗气</div>
           <div className="text-sm text-text-secondary mt-1">
             赏银 {money(salaryTotal)} · 协作 {money(collaborationCost)}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-        <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-          <div className="text-sm font-semibold text-text-primary">本帮预算执行规则</div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {SETTLEMENT_RULES.map(([label, text]) => (
-              <div key={label} className="rounded-lg bg-surface-primary p-2">
-                <div className="text-xs font-semibold text-text-primary">{label}</div>
-                <div className="mt-1 text-xs leading-5 text-text-muted">{text}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-          <div className="text-sm font-semibold text-text-primary">招募与预算信任</div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {TRUST_LEVELS.map(([level, score, rule]) => (
-              <div key={level} className="rounded-lg bg-surface-primary p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-text-primary">{level}</span>
-                  <span className="text-xs text-text-muted">{score} 分</span>
-                </div>
-                <div className="mt-1 text-xs leading-5 text-text-muted">{rule}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-border-primary bg-surface-secondary p-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div>
-            <div className="text-sm font-semibold text-text-primary">任务需求决定用谁</div>
-            <div className="mt-1 text-xs text-text-muted">声望不是总榜，帮主按委托优先级选择最适配的弟子。</div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {MATCHING_POLICIES.map(([label, text]) => (
-              <div key={label} className="rounded-lg bg-surface-primary px-3 py-2">
-                <div className="text-xs font-semibold text-text-primary">{label}</div>
-                <div className="mt-1 text-xs text-text-muted">{text}</div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

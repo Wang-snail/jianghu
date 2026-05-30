@@ -274,6 +274,7 @@ CREATE TABLE IF NOT EXISTS goals (
     status TEXT NOT NULL DEFAULT 'active',
     parent_goal_id INTEGER REFERENCES goals(id) ON DELETE CASCADE,
     assigned_worker_id INTEGER REFERENCES workers(id) ON DELETE SET NULL,
+    expected_completed_at DATETIME,
     progress REAL NOT NULL DEFAULT 0.0,
     created_at DATETIME DEFAULT (datetime('now','localtime')),
     updated_at DATETIME DEFAULT (datetime('now','localtime'))
@@ -349,6 +350,23 @@ CREATE TABLE IF NOT EXISTS escalations (
 );
 CREATE INDEX IF NOT EXISTS idx_escalations_room ON escalations(room_id);
 CREATE INDEX IF NOT EXISTS idx_escalations_status ON escalations(status);
+
+-- Training adjustments
+CREATE TABLE IF NOT EXISTS training_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    escalation_id INTEGER NOT NULL REFERENCES escalations(id) ON DELETE CASCADE,
+    worker_id INTEGER REFERENCES workers(id) ON DELETE SET NULL,
+    status TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    config_json TEXT,
+    created_at DATETIME DEFAULT (datetime('now','localtime')),
+    updated_at DATETIME DEFAULT (datetime('now','localtime')),
+    UNIQUE(escalation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_training_adjustments_room ON training_adjustments(room_id);
+CREATE INDEX IF NOT EXISTS idx_training_adjustments_escalation ON training_adjustments(escalation_id);
 
 -- Credentials
 CREATE TABLE IF NOT EXISTS credentials (

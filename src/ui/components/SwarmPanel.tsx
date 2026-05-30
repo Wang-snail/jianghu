@@ -6,7 +6,6 @@ import { api } from '../lib/client'
 import {
   ROOM_BALANCE_EVENT_TYPES,
   ROOM_NETWORK_EVENT_TYPES,
-  ROOM_STATION_EVENT_TYPES,
   ROOMS_UPDATE_EVENT,
 } from '../lib/room-events'
 import { wsClient, type WsMessage } from '../lib/ws'
@@ -619,7 +618,7 @@ const INVITE_CARDS: InviteCard[] = [
   {
     shareId: '04',
     label: '龙门镖局',
-    previewText: '委托变成镖单，弟子持续推进，风险自动升级。',
+    previewText: '帮派之间传递信息、交接材料、同步请求和协作结果。',
   },
   {
     shareId: '06',
@@ -644,7 +643,7 @@ const INVITE_CARDS: InviteCard[] = [
   {
     shareId: 'v2',
     label: '钱庄资源',
-    previewText: '灵气、元气、财气和名望都在系统内流动和记录。',
+    previewText: '财气、预算和名望在系统内流动和记录。',
   },
 ]
 
@@ -680,7 +679,7 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
   const [inviteOpen, setInviteOpen] = useState(false)
   const [shareStatus, setShareStatus] = useState<string | null>(null)
   const [inviteCopyStatus, setInviteCopyStatus] = useState<string | null>(null)
-  const [showMoney, setShowMoney] = useState<boolean>(() => storageGet('zuzu_swarm_money') !== 'false')
+  const [showMoney, setShowMoney] = useState<boolean>(() => storageGet('jianghu_swarm_money') !== 'false')
   const [inviteCardIndex, setInviteCardIndex] = useState<number>(() => Math.floor(Math.random() * INVITE_CARDS.length))
   const svgRef = useRef<SVGSVGElement>(null)
   const forcedInviteRef = useRef<number | undefined>(forcedInviteOpenNonce)
@@ -705,19 +704,9 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
     () => isDemo ? Promise.resolve(demoData!.workers) : api.workers.list(), 30000
   )
 
-  const { data: stationMap, refresh: refreshStationMap } = usePolling<Record<number, Station[]>>(
-    async () => {
-      if (isDemo) return demoData!.stations
-      if (rooms.length === 0) return {}
-      const entries = await Promise.all(
-        rooms.map(async r => {
-          const stations = await api.stations.list(r.id).catch(() => [] as Station[])
-          return [r.id, stations] as const
-        })
-      )
-      return Object.fromEntries(entries)
-    },
-    60000
+  const stationMap = useMemo<Record<number, Station[]>>(
+    () => (isDemo ? demoData!.stations : {}),
+    [demoData, isDemo]
   )
 
   const { data: revenueMap, refresh: refreshRevenueMap } = usePolling<Record<number, RevenueSummary>>(
@@ -837,19 +826,15 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
     return wsClient.subscribe('rooms', (event: WsMessage) => {
       if (event.type !== ROOMS_UPDATE_EVENT) return
       void refreshReferredMap()
-      void refreshStationMap()
       void refreshRevenueMap()
       void refreshBalanceMap()
     })
-  }, [refreshBalanceMap, refreshReferredMap, refreshRevenueMap, refreshStationMap])
+  }, [refreshBalanceMap, refreshReferredMap, refreshRevenueMap])
 
   useEffect(() => {
     if (rooms.length === 0) return
     const unsubs = rooms.map((room) =>
       wsClient.subscribe(`room:${room.id}`, (event: WsMessage) => {
-        if (ROOM_STATION_EVENT_TYPES.has(event.type)) {
-          void refreshStationMap()
-        }
         if (ROOM_BALANCE_EVENT_TYPES.has(event.type)) {
           void refreshRevenueMap()
           void refreshBalanceMap()
@@ -868,7 +853,7 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
     return () => {
       for (const unsub of unsubs) unsub()
     }
-  }, [rooms, refreshBalanceMap, refreshReferredMap, refreshRevenueMap, refreshStationMap, refreshTasksByRoom])
+  }, [rooms, refreshBalanceMap, refreshReferredMap, refreshRevenueMap, refreshTasksByRoom])
 
   const totalReferred = useMemo(
     () => Object.values(referredMap ?? {}).reduce((s, arr) => s + arr.length, 0),
@@ -1038,7 +1023,7 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
   }, [])
 
   const toggleMoney = useCallback(() => {
-    setShowMoney(prev => { const next = !prev; storageSet('zuzu_swarm_money', String(next)); return next })
+    setShowMoney(prev => { const next = !prev; storageSet('jianghu_swarm_money', String(next)); return next })
   }, [])
 
   const handleRegenerateInvite = useCallback(() => {
@@ -1653,12 +1638,12 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
         {/* Legend */}
         <div className="px-6 pb-6 pt-2 space-y-3 text-xs text-text-muted max-w-xl mx-auto">
           <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-status-success" /> 运行中（天机阁巡行）</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-status-success" /> 运行中（帮主巡行）</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-status-warning" /> 闭关</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-surface-tertiary" /> 空闲 / 停止</span>
           </div>
           <p>虚线小六边形是与当前帮派相连的江湖关系。</p>
-          <p>每个大六边形是一支<strong className="text-text-secondary">帮派</strong>，由天机阁、弟子和可选灵气资源组成。边缘小六边形代表<strong className="text-text-secondary">弟子</strong>和<strong className="text-text-secondary">灵气资源</strong>。点击帮派即可进入。</p>
+          <p>每个大六边形是一支<strong className="text-text-secondary">帮派</strong>，由帮主和弟子组成。天机阁只存在于全局入口，不进入任何帮派。边缘小六边形代表<strong className="text-text-secondary">弟子</strong>。点击帮派即可进入。</p>
           <p>点击钱庄开关可显示或隐藏财气信息。</p>
         </div>
 
@@ -1681,7 +1666,7 @@ export function SwarmPanel({ rooms, queenRunning, forcedInviteOpenNonce, onNavig
               )}
               {((stationMap ?? {})[hoveredRoom.id] ?? []).length > 0 && (
                 <div>
-                  <span className="text-text-muted">灵气资源：</span>
+                  <span className="text-text-muted">历史资源：</span>
                   {((stationMap ?? {})[hoveredRoom.id] ?? []).map(s => `${s.name} (${s.tier})`).join(', ')}
                 </div>
               )}

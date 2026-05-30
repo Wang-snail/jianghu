@@ -65,6 +65,13 @@ function linkAbortSignal(controller: AbortController, external?: AbortSignal): (
 let _codexScriptResolved = false
 let _codexNodeScript: string | null = null
 
+interface PendingCodexToolCall {
+  tool: string
+  args: Record<string, unknown>
+  resultText: string | null
+  fallbackRan: boolean
+}
+
 function resolveCodexNodeScript(): string | null {
   if (_codexScriptResolved) return _codexNodeScript
   _codexScriptResolved = true
@@ -86,6 +93,54 @@ function resolveCodexNodeScript(): string | null {
     }
   } catch { /* codex not installed or not in PATH */ }
   return null
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value)
+}
+
+function resolveCompanyMcpServerPath(): string | null {
+  const candidates = [
+    join(__dirname, 'server.js'),
+    join(__dirname, '../mcp/server.js'),
+    join(process.cwd(), 'out/mcp/server.js')
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+function resolveCompanyDbPath(): string | null {
+  const explicit = (process.env.COMPANY_DB_PATH || '').trim()
+  if (explicit) return explicit
+
+  const dataDir = (process.env.COMPANY_DATA_DIR || '').trim()
+  if (dataDir) return join(dataDir, 'data.db')
+
+  const localDevDb = join(process.cwd(), '.company-local-dev', 'data.db')
+  if (existsSync(localDevDb)) return localDevDb
+  return null
+}
+
+function buildCodexExecConfigArgs(): string[] {
+  const mcpServerPath = resolveCompanyMcpServerPath()
+  const dbPath = resolveCompanyDbPath()
+  if (!mcpServerPath || !dbPath) return []
+
+  return [
+    '-C', process.cwd(),
+    '-c', `mcp_servers.company.command=${tomlString(process.execPath)}`,
+    '-c', `mcp_servers.company.args=[${tomlString(mcpServerPath)}]`,
+    '-c', `mcp_servers.company.env.COMPANY_DB_PATH=${tomlString(dbPath)}`,
+    '-c', 'mcp_servers.company.env.COMPANY_SOURCE="codex"',
+  ]
+}
+
+function shouldRunLocalCodexToolFallback(tool: string): boolean {
+  return tool.startsWith('company_') || tool.startsWith('mcp__company__company_')
+}
+
+function isSuccessfulCodexToolResult(resultText: string | null): boolean {
+  if (!resultText) return false
+  return !/cancelled|canceled|denied|rejected|not approved|permission/i.test(resultText)
 }
 
 export async function executeAgent(options: AgentExecutionOptions): Promise<AgentExecutionResult> {
@@ -157,16 +212,17 @@ async function executeCodex(options: AgentExecutionOptions): Promise<AgentExecut
     let settled = false
     let sessionId: string | null = options.resumeSessionId ?? null
     let outputParts: string[] = []
+    let toolResultParts: string[] = []
     let buffer = ''
+    const pendingFallbackToolCalls: PendingCodexToolCall[] = []
 
     const modelName = parseModelSuffix(options.model, 'codex')
     const prompt = buildPrompt(options.systemPrompt, options.prompt)
+    const codexConfigArgs = buildCodexExecConfigArgs()
+    const modelArgs = modelName ? ['--model', modelName] : []
     const args = options.resumeSessionId
-      ? ['exec', 'resume', '--json', '--skip-git-repo-check', options.resumeSessionId, prompt]
-      : ['exec', '--json', '--skip-git-repo-check', prompt]
-    if (modelName) {
-      args.splice(2, 0, '--model', modelName)
-    }
+      ? ['exec', ...modelArgs, ...codexConfigArgs, 'resume', '--json', '--skip-git-repo-check', options.resumeSessionId, prompt]
+      : ['exec', ...modelArgs, '--json', '--skip-git-repo-check', ...codexConfigArgs, prompt]
 
     let proc: ReturnType<typeof spawn>
     try {
@@ -216,6 +272,49 @@ async function executeCodex(options: AgentExecutionOptions): Promise<AgentExecut
 
     const onConsoleLog = options.onConsoleLog
 
+    const handleCodexEvent = (evt: CodexEvent): void => {
+      if (evt.sessionId) sessionId = evt.sessionId
+      if (evt.text) {
+        outputParts.push(evt.text)
+        onConsoleLog?.({ entryType: 'assistant_text', content: evt.text.slice(0, 2000) })
+      }
+      if (evt.toolCall) {
+        onConsoleLog?.({ entryType: 'tool_call', content: `→ ${evt.toolCall.tool}(${JSON.stringify(evt.toolCall.arguments).slice(0, 500)})` })
+        if (options.onToolCall && shouldRunLocalCodexToolFallback(evt.toolCall.tool)) {
+          pendingFallbackToolCalls.push({
+            tool: evt.toolCall.tool,
+            args: evt.toolCall.arguments,
+            resultText: null,
+            fallbackRan: false
+          })
+        }
+      }
+      if (evt.toolResult) {
+        onConsoleLog?.({ entryType: 'tool_result', content: evt.toolResult })
+        toolResultParts.push(evt.toolResult)
+        const pending = [...pendingFallbackToolCalls].reverse().find(call => call.resultText == null)
+        if (pending) pending.resultText = evt.toolResult
+      }
+    }
+
+    const flushCodexToolFallbacks = async (): Promise<void> => {
+      if (!options.onToolCall) return
+      for (const call of pendingFallbackToolCalls) {
+        if (call.fallbackRan || isSuccessfulCodexToolResult(call.resultText)) continue
+        call.fallbackRan = true
+        try {
+          const result = await options.onToolCall(call.tool, call.args)
+          const content = `[local fallback] ${result}`
+          outputParts.push(content)
+          onConsoleLog?.({ entryType: 'tool_result', content })
+        } catch (err) {
+          const content = `[local fallback failed] ${err instanceof Error ? err.message : String(err)}`
+          outputParts.push(content)
+          onConsoleLog?.({ entryType: 'tool_result', content })
+        }
+      }
+    }
+
     proc.stdout.on('data', (data: Buffer) => {
       const chunk = data.toString()
       stdout += chunk
@@ -223,19 +322,7 @@ async function executeCodex(options: AgentExecutionOptions): Promise<AgentExecut
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
-        parseCodexEventLine(line, (evt) => {
-          if (evt.sessionId) sessionId = evt.sessionId
-          if (evt.text) {
-            outputParts.push(evt.text)
-            onConsoleLog?.({ entryType: 'assistant_text', content: evt.text.slice(0, 2000) })
-          }
-          if (evt.toolCall) {
-            onConsoleLog?.({ entryType: 'tool_call', content: `→ ${evt.toolCall.tool}(${JSON.stringify(evt.toolCall.arguments).slice(0, 500)})` })
-          }
-          if (evt.toolResult) {
-            onConsoleLog?.({ entryType: 'tool_result', content: evt.toolResult })
-          }
-        })
+        parseCodexEventLine(line, handleCodexEvent)
       }
     })
 
@@ -266,26 +353,18 @@ async function executeCodex(options: AgentExecutionOptions): Promise<AgentExecut
       else options.abortSignal.addEventListener('abort', onAbort, { once: true })
     }
 
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       if (options.abortSignal) options.abortSignal.removeEventListener('abort', onAbort)
       if (buffer.trim()) {
-        parseCodexEventLine(buffer.trim(), (evt) => {
-          if (evt.sessionId) sessionId = evt.sessionId
-          if (evt.text) {
-            outputParts.push(evt.text)
-            onConsoleLog?.({ entryType: 'assistant_text', content: evt.text.slice(0, 2000) })
-          }
-          if (evt.toolCall) {
-            onConsoleLog?.({ entryType: 'tool_call', content: `→ ${evt.toolCall.tool}(${JSON.stringify(evt.toolCall.arguments).slice(0, 500)})` })
-          }
-        })
+        parseCodexEventLine(buffer.trim(), handleCodexEvent)
       }
-      const output = outputParts.join('\n\n').trim() || stderr.trim() || stdout.trim() || ''
+      await flushCodexToolFallbacks()
+      const parsedOutput = outputParts.join('\n\n').trim() || toolResultParts.join('\n\n').trim()
       resolve({
-        output: aborted && !output ? 'Execution aborted' : output,
+        output: aborted && !parsedOutput ? 'Execution aborted' : (parsedOutput || stderr.trim() || stdout.trim() || ''),
         exitCode: aborted ? 130 : (code ?? (timedOut ? 124 : 1)),
         durationMs: Date.now() - startTime,
         sessionId,

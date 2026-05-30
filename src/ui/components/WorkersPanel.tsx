@@ -5,7 +5,7 @@ import { api } from '../lib/client'
 import type { Worker } from '@shared/types'
 import { WORKER_TEMPLATES, type WorkerTemplatePreset } from '@shared/worker-templates'
 import { WORKER_ROLE_PRESETS } from '@shared/constants'
-import { isAssignableWorker } from '@shared/worker-roles'
+import { isAssignableWorker, isInnWorker } from '@shared/worker-roles'
 import { AutoModeLockModal, AUTO_MODE_LOCKED_BUTTON_CLASS, modeAwareButtonClass, useAutonomyControlGate } from './AutonomyControlGate'
 
 interface WorkersPanelProps {
@@ -18,6 +18,10 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
 
   const { data: workers, refresh } = usePolling(
     () => roomId ? api.workers.listForRoom(roomId) : Promise.resolve([]),
+    30000
+  )
+  const { data: allWorkers, refresh: refreshAllWorkers } = usePolling(
+    () => api.workers.list().catch(() => []),
     30000
   )
   const { data: room } = usePolling(
@@ -51,6 +55,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
     queenMaxTurns: room.queenMaxTurns,
   } : null
   const visibleWorkers = (workers ?? []).filter(worker => isAssignableWorker(worker, room?.queenWorkerId ?? null))
+  const innCandidates = (allWorkers ?? []).filter(worker => isInnWorker(worker, room?.queenWorkerId ?? null))
   const recruitableTemplates = WORKER_TEMPLATES.filter(t => isAssignableWorker({
     id: 0,
     name: t.name,
@@ -59,12 +64,16 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
   }))
 
   useEffect(() => {
-    if (workerEvent) refresh()
-  }, [workerEvent, refresh])
+    if (workerEvent) {
+      refresh()
+      refreshAllWorkers()
+    }
+  }, [workerEvent, refresh, refreshAllWorkers])
 
   useEffect(() => {
     refresh()
-  }, [roomId, refresh])
+    refreshAllWorkers()
+  }, [roomId, refresh, refreshAllWorkers])
 
   useEffect(() => {
     if (!showCreate || !roomDefaults) return
@@ -130,7 +139,6 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
       description: createDesc.trim() || undefined,
       cycleGapMs: cycleGapMs ?? undefined,
       maxTurns: maxTurns ?? undefined,
-      roomId: roomId ?? undefined
     })
     setCreateName('')
     setCreateRole('')
@@ -142,6 +150,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
     setCreateUseDefaultMaxTurns(true)
     setShowCreate(false)
     refresh()
+    refreshAllWorkers()
   }
 
   function toggleExpand(worker: Worker): void {
@@ -197,16 +206,21 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
     setShowCreate(true)
   }
 
-  async function hireTemplate(t: WorkerTemplatePreset): Promise<void> {
-    if (!roomId) return
+  async function addTemplateToInn(t: WorkerTemplatePreset): Promise<void> {
     await api.workers.create({
       name: t.name,
       role: t.role,
       systemPrompt: t.systemPrompt,
       description: t.description,
-      roomId
     })
+    refreshAllWorkers()
+  }
+
+  async function recruitFromInn(worker: Worker): Promise<void> {
+    if (!roomId) return
+    await api.workers.update(worker.id, { roomId })
     refresh()
+    refreshAllWorkers()
   }
 
   return (
@@ -220,7 +234,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
           onClick={() => guard(() => setShowCreate(!showCreate))}
           className={`text-xs px-2.5 py-1.5 rounded-lg ${modeAwareButtonClass(semi, 'bg-interactive text-text-invert hover:bg-interactive-hover')}`}
         >
-          {showCreate ? '取消' : '+ 自定义弟子'}
+          {showCreate ? '取消' : '+ 自定义客栈弟子'}
         </button>
       </div>
 
@@ -285,7 +299,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
           <input type="text" placeholder="司职说明（可选）" value={createDesc} onChange={(e) => setCreateDesc(e.target.value)} className="w-full px-2.5 py-1.5 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary text-text-primary placeholder:text-text-muted" />
           <textarea placeholder="中文弟子心法：说明目标、功法、工作方法、交付标准和使用边界。" value={createPrompt} onChange={(e) => setCreatePrompt(e.target.value)} rows={12} className="w-full px-2.5 py-1.5 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary text-text-primary placeholder:text-text-muted font-mono resize-y" />
           <button onClick={handleCreate} disabled={!createName.trim() || !createPrompt.trim()} className="text-sm bg-interactive text-text-invert px-4 py-2 rounded-lg hover:bg-interactive-hover disabled:opacity-50 disabled:cursor-not-allowed">
-            创建弟子
+            加入客栈
           </button>
         </div>
       )}
@@ -293,7 +307,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
       <div className="flex-1 overflow-y-auto">
         {workers && visibleWorkers.length === 0 && (
           <div className="p-4 text-sm text-text-muted">
-            {roomId ? (semi ? '当前帮派还没有弟子。可以自定义弟子，或从下面的客栈候选中调人入局。' : '当前帮派还没有弟子。天机处会按委托创建或邀请弟子。') : '请选择一个帮派查看弟子。'}
+            {roomId ? (semi ? '当前帮派还没有弟子。请先在客栈准备候选，再从客栈调人入局。' : '当前帮派还没有弟子。天机处会按委托从客栈选择弟子。') : '请选择一个帮派查看弟子。'}
           </div>
         )}
         {workers && visibleWorkers.length > 0 && (
@@ -434,9 +448,58 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
 
         <div className="p-4 space-y-2">
           <div>
-            <div className="text-sm text-text-primary font-semibold">客栈可招募弟子</div>
+            <div className="text-sm text-text-primary font-semibold">客栈在册弟子</div>
             <div className="text-xs text-text-muted mt-0.5">
-              客栈只处理角色、弟子、功法、招募和任职关系；入局后的弟子只属于当前帮派，不处理财气。
+              选择弟子时只能从这里调入；入局后的弟子只属于当前帮派，不处理财气。
+            </div>
+          </div>
+          {innCandidates.length === 0 && (
+            <div className="rounded-lg border border-border-primary bg-surface-secondary p-3 text-sm text-text-muted">
+              客栈暂无空闲弟子。可以先把下方候选画像加入客栈，或自定义一名客栈弟子。
+            </div>
+          )}
+          {innCandidates.length > 0 && (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {innCandidates.map((worker) => (
+                <div
+                  key={worker.id}
+                  className="rounded-lg border border-border-primary bg-surface-secondary p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-text-primary">{worker.name}</div>
+                      <div className="text-xs text-interactive">{worker.role || '通用弟子'}</div>
+                    </div>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-interactive-bg text-interactive">客栈候选</span>
+                  </div>
+                  {worker.description && (
+                    <div className="text-xs text-text-secondary">
+                      <span className="text-text-muted">岗位能力：</span>{worker.description}
+                    </div>
+                  )}
+                  <div className="text-xs text-text-muted">
+                    履历：完成镖单 {worker.taskCount} 次
+                  </div>
+                  <button
+                    onClick={() => guard(() => void recruitFromInn(worker))}
+                    disabled={!roomId}
+                    className={`text-xs px-2.5 py-1.5 rounded-lg ${modeAwareButtonClass(
+                      semi,
+                      'bg-interactive text-text-invert hover:bg-interactive-hover disabled:opacity-50 disabled:cursor-not-allowed',
+                      'bg-status-info-bg text-status-info hover:bg-surface-hover'
+                    )}`}
+                  >
+                    调入当前帮派
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="pt-3">
+            <div className="text-sm text-text-primary font-semibold">候选画像</div>
+            <div className="text-xs text-text-muted mt-0.5">
+              画像需要先加入客栈，之后才能被帮主调入当前帮派。
             </div>
           </div>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -470,7 +533,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
                 </details>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => guard(() => void hireTemplate(t))}
+                    onClick={() => guard(() => void addTemplateToInn(t))}
                     disabled={!roomId}
                     className={`text-xs px-2.5 py-1.5 rounded-lg ${modeAwareButtonClass(
                       semi,
@@ -478,7 +541,7 @@ export function WorkersPanel({ roomId, autonomyMode }: WorkersPanelProps): React
                       'bg-status-info-bg text-status-info hover:bg-surface-hover'
                     )}`}
                   >
-                    派入当前帮派
+                    加入客栈
                   </button>
                   <button
                     onClick={() => guard(() => useTemplate(t))}

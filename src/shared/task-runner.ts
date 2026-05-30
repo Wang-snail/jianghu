@@ -3,14 +3,14 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs'
 import { executeClaudeCode } from './claude-code'
 import type { ConsoleLogCallback, ExecutionOptions, ExecutionResult } from './claude-code'
 import { executeApiOnStation } from './agent-executor'
-import { resolveApiKeyForModel } from './model-provider'
+import { getGlobalModel, resolveApiKeyForModel, resolveWorkerExecutionModel } from './model-provider'
 import { getRoomCloudId, listCloudStations } from './cloud-sync'
 import * as queries from './db-queries'
 import { DEFAULTS } from './constants'
 import { shouldDistill, distillLearnedContext } from './learned-context'
 import { detectRateLimit, sleep, RATE_LIMIT_MAX_RETRIES } from './rate-limit'
 import type Database from 'better-sqlite3'
-import type { Task } from './types'
+import type { Task, Worker } from './types'
 
 export interface TaskExecutionOptions {
   db: Database.Database
@@ -330,13 +330,15 @@ export async function executeTask(
   }
 
   // ─── Resolve worker model EARLY to decide execution path ──────
-  // worker.model > room.workerModel > 'claude' (default)
+  // worker.model > room/global model > 'claude' (final CLI fallback)
   let systemPrompt: string | undefined
   let model: string | undefined
+  let modelWorker: Worker | null = null
   try {
     if (task.workerId) {
       const worker = queries.getWorker(db, task.workerId)
       if (worker) {
+        modelWorker = worker
         systemPrompt = worker.systemPrompt
         model = worker.model ?? undefined
       }
@@ -344,20 +346,20 @@ export async function executeTask(
     if (!systemPrompt) {
       const defaultWorker = queries.getDefaultWorker(db)
       if (defaultWorker) {
+        modelWorker = defaultWorker
         systemPrompt = defaultWorker.systemPrompt
         if (!model) model = defaultWorker.model ?? undefined
       }
     }
-    // Fall back to room-level workerModel if worker has no explicit model
     if (!model && task.roomId) {
       const room = queries.getRoom(db, task.roomId)
-      if (room?.workerModel && room.workerModel !== 'claude') {
-        if (room.workerModel === 'queen') {
-          const queen = room.queenWorkerId ? queries.getWorker(db, room.queenWorkerId) : null
-          model = queen?.model ?? 'claude'
-        } else {
-          model = room.workerModel
-        }
+      if (modelWorker) {
+        model = resolveWorkerExecutionModel(db, task.roomId, modelWorker) ?? undefined
+      } else if (room?.queenWorkerId) {
+        const queen = queries.getWorker(db, room.queenWorkerId)
+        model = queen ? (resolveWorkerExecutionModel(db, task.roomId, queen) ?? undefined) : undefined
+      } else {
+        model = getGlobalModel(db) ?? (room?.workerModel && room.workerModel !== 'queen' ? room.workerModel : undefined)
       }
     }
   } catch (err) {

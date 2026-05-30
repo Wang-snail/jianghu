@@ -3,6 +3,7 @@ export const ROOMS_QUEEN_STATE_EVENT = 'rooms:queen_state' as const
 
 export const ROOM_ESCALATION_CREATED_EVENT = 'escalation:created' as const
 export const ROOM_ESCALATION_RESOLVED_EVENT = 'escalation:resolved' as const
+export const ROOM_TRAINING_UPDATED_EVENT = 'training:updated' as const
 export const ROOM_DECISION_CREATED_EVENT = 'decision:created' as const
 export const ROOM_DECISION_RESOLVED_EVENT = 'decision:resolved' as const
 export const ROOM_DECISION_VOTE_CAST_EVENT = 'decision:vote_cast' as const
@@ -49,6 +50,7 @@ export const ROOM_SELF_MOD_REVERTED_EVENT = 'self_mod:reverted' as const
 export const ROOM_ESCALATION_EVENT_TYPES = new Set([
   ROOM_ESCALATION_CREATED_EVENT,
   ROOM_ESCALATION_RESOLVED_EVENT,
+  ROOM_TRAINING_UPDATED_EVENT,
 ])
 
 export const ROOM_MESSAGE_EVENT_TYPES = new Set([

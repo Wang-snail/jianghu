@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import * as queries from './db-queries'
 import { checkClaudeCliAvailable } from './claude-code'
+import type { Worker } from './types'
 
 export type ModelProvider =
   | 'claude_subscription'
@@ -22,9 +23,71 @@ export interface ModelAuthStatus {
   maskedKey: string | null
 }
 
+const GLOBAL_MODEL_KEYS = ['global_model', 'clerk_model', 'queen_model'] as const
+
 export function normalizeModel(model: string | null | undefined): string {
   const trimmed = model?.trim()
   return trimmed ? trimmed : 'claude'
+}
+
+export function getGlobalModel(db: Database.Database, fallbackModel: string | null = null): string | null {
+  for (const key of GLOBAL_MODEL_KEYS) {
+    const model = queries.getSetting(db, key)?.trim()
+    if (model) return model
+  }
+  return fallbackModel
+}
+
+export function setGlobalModel(db: Database.Database, model: string): void {
+  const next = model.trim()
+  if (!next) return
+
+  const previous = getGlobalModel(db)
+  for (const key of GLOBAL_MODEL_KEYS) {
+    queries.setSetting(db, key, next)
+  }
+
+  const clerk = queries.ensureClerkWorker(db)
+  queries.updateWorker(db, clerk.id, { model: next })
+
+  for (const room of queries.listRooms(db)) {
+    const current = room.workerModel?.trim()
+    if (!current || current === 'claude' || current === 'queen' || current === previous) {
+      queries.updateRoom(db, room.id, { workerModel: 'queen' })
+    }
+  }
+
+  for (const worker of queries.listWorkers(db)) {
+    const current = worker.model?.trim()
+    if (worker.id === clerk.id) continue
+    if (!current || current === previous) {
+      queries.updateWorker(db, worker.id, { model: next })
+    }
+  }
+}
+
+export function resolveWorkerExecutionModel(
+  db: Database.Database,
+  roomId: number,
+  worker: Worker
+): string | null {
+  const explicit = worker.model?.trim()
+  if (explicit) return explicit
+
+  const room = queries.getRoom(db, roomId)
+  const globalModel = getGlobalModel(db)
+  if (!room) return globalModel
+
+  const roomModel = room.workerModel?.trim()
+  if (!roomModel || roomModel === 'queen' || roomModel === 'global') {
+    if (roomModel === 'queen' && room.queenWorkerId && room.queenWorkerId !== worker.id) {
+      const queen = queries.getWorker(db, room.queenWorkerId)
+      return queen?.model?.trim() || globalModel
+    }
+    return globalModel
+  }
+
+  return roomModel
 }
 
 export function getModelProvider(model: string | null | undefined): ModelProvider {
@@ -58,7 +121,7 @@ export async function getModelAuthStatus(db: Database.Database, roomId: number, 
   if (provider === 'claude_subscription') {
     ready = checkClaudeCliAvailable().available
   } else if (provider === 'codex_subscription') {
-    ready = checkCodexCliAvailable()
+    ready = checkCodexCliConnected()
   }
 
   return {
@@ -188,4 +251,31 @@ function checkCodexCliAvailable(): boolean {
   } catch {
     return false
   }
+}
+
+function checkCodexCliConnected(): boolean {
+  if (!checkCodexCliAvailable()) return false
+  const cmd = process.platform === 'win32' ? 'codex.cmd' : 'codex'
+  const attempts = [['login', 'status'], ['auth', 'status']]
+  for (const args of attempts) {
+    try {
+      const stdout = execFileSync(cmd, args, {
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+      }).toString()
+      const combined = stdout.toLowerCase()
+      if (combined.includes('not logged') || combined.includes('logged out') || combined.includes('unauth')) {
+        return false
+      }
+      return true
+    } catch (err) {
+      const e = err as { stdout?: Buffer; stderr?: Buffer; message?: string }
+      const combined = `${e.stdout?.toString() ?? ''}\n${e.stderr?.toString() ?? ''}\n${e.message ?? ''}`.toLowerCase()
+      if (combined.includes('not logged') || combined.includes('logged out') || combined.includes('unauth')) {
+        return false
+      }
+    }
+  }
+  return false
 }

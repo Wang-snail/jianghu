@@ -30,21 +30,21 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex flex-col h-screen bg-surface-primary items-center justify-center px-4">
         <div className="max-w-sm w-full text-center flex flex-col items-center space-y-4">
-          <h1 className="text-lg font-bold text-text-primary">Something went wrong</h1>
+          <h1 className="text-lg font-bold text-text-primary">页面出错了</h1>
           <p className="text-sm text-text-muted">
-            {this.state.error?.message || 'An unexpected error occurred.'}
+            {this.state.error?.message || '发生了一个未预期的问题。'}
           </p>
           <button
             onClick={() => window.location.reload()}
             className="text-sm px-4 py-2 rounded-lg bg-interactive text-text-invert hover:bg-interactive-hover transition-colors"
           >
-            Reload page
+            刷新页面
           </button>
           <button
-            onClick={() => window.open('mailto:hello@email.zuzu.ai?subject=App error&body=Something went wrong in 江湖.')}
+            onClick={() => window.open('https://github.com/Wang-snail/jianghu/issues/new')}
             className="text-xs text-text-muted hover:text-text-secondary transition-colors"
           >
-            Email Developer
+            提交问题
           </button>
         </div>
       </div>

@@ -38,7 +38,7 @@ const COMMON = {
 mkdirSync('out/mcp', { recursive: true })
 if (!existsSync('out/mcp/node_modules')) {
   writeFileSync('out/mcp/package.json', JSON.stringify({
-    name: 'zuzu-mcp',
+    name: 'jianghu-mcp',
     version,
     private: true,
     dependencies: {
@@ -104,7 +104,7 @@ function getDevServerEnv() {
   env.COMPANY_DB_PATH = env.COMPANY_DB_PATH || path.join(dataDir, 'data.db')
   env.COMPANY_STATIC_DIR = env.COMPANY_STATIC_DIR || path.join(process.cwd(), 'out', 'ui')
   env.COMPANY_SKIP_MCP_REGISTER = env.COMPANY_SKIP_MCP_REGISTER || '1'
-  env.ZUZU_BOOTSTRAPPED_USER_CLI = '1'
+  env.JIANGHU_BOOTSTRAPPED_USER_CLI = '1'
   return env
 }
 

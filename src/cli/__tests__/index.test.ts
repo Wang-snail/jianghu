@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.resetModules()
   process.argv = ['node', 'cli.js', 'help']
   process.env = { ...ORIG_ENV }
-  delete process.env.ZUZU_BOOTSTRAPPED_USER_CLI
+  delete process.env.JIANGHU_BOOTSTRAPPED_USER_CLI
   fakeHome = mkdtempSync(path.join(tmpdir(), 'company-cli-home-'))
 })
 
@@ -30,7 +30,7 @@ interface CliFixtureOptions {
 }
 
 function setupUserUpdateFixture(options: CliFixtureOptions): string {
-  const userAppDir = path.join(fakeHome, '.zuzu', 'app')
+  const userAppDir = path.join(fakeHome, '.jianghu', 'app')
   const userCliPath = path.join(userAppDir, 'lib', 'cli.js')
   const versionPath = path.join(userAppDir, 'version.json')
   mkdirSync(path.dirname(userCliPath), { recursive: true })
@@ -77,6 +77,24 @@ describe('cli bootstrap', () => {
       versionJson: JSON.stringify({ version: '9.9.9' }),
     })
     expect((globalThis as Record<string, unknown>).__userCliLoaded).toBe(1)
+  })
+
+  it('ignores newer user-space CLI when its UI is legacy', async () => {
+    const userAppDir = path.join(fakeHome, '.jianghu', 'app')
+    const userUiDir = path.join(userAppDir, 'ui')
+    setupUserUpdateFixture({
+      createUserCli: true,
+      versionJson: JSON.stringify({ version: '9.9.9' }),
+    })
+    mkdirSync(userUiDir, { recursive: true })
+    writeFileSync(path.join(userUiDir, 'index.html'), '<title>虫族 - AI 智能体框架</title><div>Clerk Setup</div>')
+
+    vi.doMock('node:os', () => ({ homedir: () => fakeHome }))
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await import('../index')
+    logSpy.mockRestore()
+
+    expect((globalThis as Record<string, unknown>).__userCliLoaded).toBeUndefined()
   })
 
   it('ignores user-space CLI when version metadata is invalid', async () => {

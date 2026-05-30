@@ -1,17 +1,17 @@
-export type Tab = 'tianji' | 'jinyiwei' | 'swarm' | 'inn' | 'status' | 'memory' | 'workers' | 'tasks' | 'goals' | 'votes' | 'messages' | 'skills' | 'credentials' | 'transactions' | 'stations' | 'room-settings' | 'settings' | 'help'
+export type Tab = 'tianji' | 'jinyiwei' | 'swarm' | 'inn' | 'status' | 'memory' | 'workers' | 'training' | 'tasks' | 'goals' | 'votes' | 'messages' | 'skills' | 'credentials' | 'transactions' | 'room-settings' | 'settings' | 'help'
 
 export const mainTabs: { id: Tab; label: string; advanced?: boolean }[] = [
-  { id: 'status', label: '江湖驾驶舱' },
-  { id: 'goals', label: '委托目标', advanced: true },
+  { id: 'status', label: '帮主管理处' },
   { id: 'votes', label: '议事堂' },
   { id: 'messages', label: '飞鸽传书' },
   { id: 'workers', label: '门下弟子' },
+  { id: 'training', label: '训练营' },
   { id: 'transactions', label: '钱庄' },
+  { id: 'room-settings', label: '帮派设置' },
   { id: 'tasks', label: '龙门镖局', advanced: true },
   { id: 'skills', label: '藏经阁', advanced: true },
   { id: 'credentials', label: '访问凭证', advanced: true },
-  { id: 'stations', label: '灵气资源', advanced: true },
-  { id: 'memory', label: '江湖记忆', advanced: true },
+  { id: 'memory', label: '帮派记忆', advanced: true },
 ]
 
 const bottomTabs: { id: Tab; label: string }[] = [
@@ -64,9 +64,14 @@ export const tabIcons: Record<Tab, React.JSX.Element> = {
       <circle cx="6" cy="5" r="2" /><path d="M2 13c0-2.2 1.8-4 4-4s4 1.8 4 4" /><circle cx="11" cy="5" r="1.5" /><path d="M11 9c1.7 0 3 1.3 3 3" />
     </svg>
   ),
-  tasks: ( // checklist
+  training: ( // camp flag
     <svg width={S} height={S} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 4l1.5 1.5L7 3" /><path d="M9 4h5" /><path d="M3 8l1.5 1.5L7 7" /><path d="M9 8h5" /><path d="M3 12l1.5 1.5L7 11" /><path d="M9 12h5" />
+      <path d="M3 14V2" /><path d="M3 3h8l-1.5 2L11 7H3" /><path d="M6 14h7" /><path d="M8 10l2 4" />
+    </svg>
+  ),
+  tasks: ( // inter-room relay
+    <svg width={S} height={S} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="5" height="4" rx="1" /><rect x="9" y="8" width="5" height="4" rx="1" /><path d="M7 6h3.5" /><path d="M9.5 4.8L11 6l-1.5 1.2" /><path d="M9 10H5.5" /><path d="M6.5 8.8L5 10l1.5 1.2" />
     </svg>
   ),
   skills: ( // lightning bolt
@@ -82,11 +87,6 @@ export const tabIcons: Record<Tab, React.JSX.Element> = {
   transactions: ( // arrows up-down
     <svg width={S} height={S} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 3v10M5 3L2 6M5 3l3 3" /><path d="M11 13V3M11 13l-3-3M11 13l3-3" />
-    </svg>
-  ),
-  stations: ( // server
-    <svg width={S} height={S} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="12" height="4" rx="1" /><rect x="2" y="10" width="12" height="4" rx="1" /><path d="M8 6v4" /><circle cx="5" cy="4" r="0.5" fill="currentColor" /><circle cx="5" cy="12" r="0.5" fill="currentColor" />
     </svg>
   ),
   memory: ( // brain/database

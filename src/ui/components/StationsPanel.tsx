@@ -10,7 +10,7 @@ import { formatRelativeTime } from '../utils/time'
 import { AutoModeLockModal, AUTO_MODE_LOCKED_BUTTON_CLASS, modeAwareButtonClass, useAutonomyControlGate } from './AutonomyControlGate'
 import type { Wallet } from '@shared/types'
 
-const CLOUD_BASE = (import.meta.env.VITE_CLOUD_URL || 'https://zuzu.io').replace(/\/$/, '')
+const CLOUD_BASE = (import.meta.env.VITE_CLOUD_URL || '').replace(/\/$/, '')
 const CLOUD_STATIONS_URL = `${CLOUD_BASE}/stations`
 
 const STATUS_COLORS: Record<string, string> = {
@@ -63,6 +63,12 @@ interface StationsPanelProps {
 }
 
 export function StationsPanel({ roomId, autonomyMode }: StationsPanelProps): React.JSX.Element {
+  return (
+    <div className="p-4 text-sm text-text-muted">
+      资源功能暂未启用。当前江湖先由帮主、弟子、藏经阁和钱庄完成任务运转。
+    </div>
+  )
+
   const { semi, guard, requestSemiMode, showLockModal, closeLockModal } = useAutonomyControlGate(autonomyMode)
   const [cloudRoomId, setCloudRoomId] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ id: number; action: 'cancel' | 'delete' } | null>(null)
@@ -217,7 +223,7 @@ export function StationsPanel({ roomId, autonomyMode }: StationsPanelProps): Rea
   }
 
   if (!roomId) {
-    return <div className="p-4 text-sm text-text-muted">请选择帮派查看灵气资源。</div>
+    return <div className="p-4 text-sm text-text-muted">请选择帮派查看资源。</div>
   }
 
   const activeStations = (stations ?? []).filter(s => s.status === '活跃')
@@ -226,7 +232,7 @@ export function StationsPanel({ roomId, autonomyMode }: StationsPanelProps): Rea
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-base font-semibold text-text-primary">灵气资源</h2>
+        <h2 className="text-base font-semibold text-text-primary">资源</h2>
         <div className="flex items-center gap-2">
           {totalMonthlyCost > 0 && (
             <span className="text-xs text-text-muted">${totalMonthlyCost}/月</span>
@@ -250,7 +256,7 @@ export function StationsPanel({ roomId, autonomyMode }: StationsPanelProps): Rea
 
       {(!stations || stations.length === 0) ? (
         <div className="text-sm text-text-muted py-4 text-center">
-          暂无灵气资源。
+          暂无资源。
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">

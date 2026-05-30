@@ -40,6 +40,7 @@ import { handleWebhookRequest } from './webhooks'
 import { eventBus } from './event-bus'
 import { inheritShellPath } from './shell-path'
 import { terminateManagedChildProcesses } from '../shared/process-supervisor'
+import { isLegacyUiDir } from '../shared/legacy-user-app'
 
 try {
   (process as unknown as { loadEnvFile?: (path?: string) => void }).loadEnvFile?.('.env')
@@ -397,7 +398,7 @@ function resolveStaticDirForStart(): string | undefined {
   const userUiDir = path.join(USER_APP_DIR, 'ui')
   const bundledUiDir = path.join(__dirname, '../ui')
   const readyVersion = getReadyUpdateVersion()
-  if (readyVersion && fs.existsSync(path.join(userUiDir, 'index.html'))) {
+  if (readyVersion && fs.existsSync(path.join(userUiDir, 'index.html')) && !isLegacyUiDir(userUiDir)) {
     return userUiDir
   }
   if (fs.existsSync(bundledUiDir)) {
@@ -803,20 +804,21 @@ function patchCodexConfig(configPath: string, nodePath: string, mcpServerPath: s
 
     const raw = fs.readFileSync(configPath, 'utf-8')
 
-    // Remove existing [mcp_servers.company] section and its sub-sections (line-based
+    // Remove existing company MCP server sections before appending a fresh one.
+    // sections and their sub-sections (line-based
     // to avoid issues with TOML array syntax using '[' in values)
     const lines = raw.split('\n')
     const filtered: string[] = []
-    let in江湖Section = false
+    let inJianghuSection = false
     for (const line of lines) {
       if (/^\[mcp_servers\.company[\].]/.test(line)) {
-        in江湖Section = true
+        inJianghuSection = true
         continue
       }
-      if (in江湖Section && /^\[/.test(line)) {
-        in江湖Section = false
+      if (inJianghuSection && /^\[/.test(line)) {
+        inJianghuSection = false
       }
-      if (!in江湖Section) {
+      if (!inJianghuSection) {
         filtered.push(line)
       }
     }

@@ -1,16 +1,16 @@
 {
-  "name": "zuzu",
+  "name": "jianghu-local",
   "version": "0.1.39",
   "description": "江湖 — 本地 AI 数字组织生态系统：天机阁、临时帮派、弟子、议事堂、钱庄、藏经阁。",
   "main": "./out/mcp/server.js",
   "bin": {
-    "zuzu": "./out/mcp/cli.js"
+    "jianghu": "./out/mcp/cli.js"
   },
-  "author": "江湖 <hello@zuzu.ai>",
-  "homepage": "https://zuzu.ai",
+  "author": "江湖 contributors",
+  "homepage": "",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zuzu-ai/company-local.git"
+    "url": "https://github.com/Wang-snail/jianghu.git"
   },
   "license": "MIT",
   "files": [
@@ -27,8 +27,8 @@
     "build:ui": "vite build --config src/ui/vite.config.ts",
     "kill:ports": "node scripts/kill-ports.js",
     "kill:dev-ports": "npm run kill:ports -- 4700 3715 5173 5174",
-    "kill:zuzu-runtime": "node scripts/kill-company-runtime.js",
-    "kill:dev-runtime": "npm run kill:dev-ports && npm run kill:zuzu-runtime",
+    "kill:jianghu-runtime": "node scripts/kill-company-runtime.js",
+    "kill:dev-runtime": "npm run kill:dev-ports && npm run kill:jianghu-runtime",
     "dev:links": "node scripts/dev-links.js",
     "dev": "node scripts/run-dev.js",
     "dev:win": "node scripts/run-dev.js",
@@ -48,6 +48,7 @@
     "dev:cloud:win": "node -e \"console.log('本项目默认本地运行。请使用 npm run dev:room:win。')\"",
     "dev:ui": "vite --config src/ui/vite.config.ts",
     "seed:style-demo": "sh -c 'export COMPANY_DATA_DIR=$PWD/.company-local-dev; node scripts/seed-style-demo.js'",
+    "seed:validation-gang": "sh -c 'export COMPANY_DATA_DIR=$PWD/.company-local-dev; node scripts/seed-validation-gang.js'",
     "seed:style-demo:win": "node scripts/seed-style-demo.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run rebuild:native:node && vitest run --pool=forks --passWithNoTests",
@@ -68,7 +69,7 @@
     "social:rotate:dry": "node scripts/rotate-social-image.js --dry-run",
     "social:test": "node scripts/test-social-rotation.js",
     "social:cron:install": "bash scripts/install-social-rotation-cron.sh",
-    "social:cron:show": "crontab -l | grep 'zuzu-social-rotate' || true"
+    "social:cron:show": "crontab -l | grep 'jianghu-social-rotate' || true"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.4.1",

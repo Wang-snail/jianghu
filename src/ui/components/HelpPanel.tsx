@@ -1,5 +1,7 @@
 import { APP_MODE } from '../lib/auth'
 
+const REPO_URL = 'https://github.com/Wang-snail/jianghu'
+
 interface HelpPanelProps {
   onStartWalkthrough?: () => void
 }
@@ -24,7 +26,7 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
               <span className="font-medium text-text-secondary">创建临时帮派</span> - 一个围绕本次委托成立的项目组。任务完成后经验归档、履历更新。
             </p>
             <p>
-              <span className="font-medium text-text-secondary">弟子</span> - 天机阁从帮派中选择或创建弟子，并把镖单分派给合适角色。
+              <span className="font-medium text-text-secondary">弟子</span> - 帮主从客栈选择或创建弟子，并把镖单分派给合适角色。
             </p>
             <p className="text-text-muted text-xs">
               示例：&quot;构建一个微型 SaaS 产品&quot; - 查看江湖如何拆解委托、分派镖单、推进执行和复盘。
@@ -48,12 +50,12 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
                 ? '托管服务器、SQLite数据库。'
                 : <>服务器位于 <span className="font-mono text-text-secondary">localhost:4700</span>，SQLite数据库。</>
               }{' '}
-              天机阁和弟子支持 Claude、Codex、MiMo、OpenAI 和 Anthropic API 模型。
+              天机阁、帮主和弟子默认使用同一个全局模型；需要时可给单个角色设置独立模型。
             </p>
             <p className="text-xs text-text-muted">
               {APP_MODE === 'cloud'
                 ? '本地服务 -&gt; SQLite -&gt; 模型选择'
-                : <><span className="font-mono">zuzu serve</span> -&gt; SQLite -&gt; 模型选择</>
+                : <><span className="font-mono">jianghu serve</span> -&gt; SQLite -&gt; 模型选择</>
               }
             </p>
           </div>
@@ -64,11 +66,15 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
           <div className="bg-surface-secondary shadow-sm rounded-lg p-3 space-y-2 text-sm text-text-secondary flex-1">
             <div className="flex gap-2">
               <span className="font-medium text-text-secondary shrink-0">天机阁</span>
-              <span className="text-text-muted">- 中央调度层，负责分派镖单、监控进展和解除阻塞</span>
+              <span className="text-text-muted">- 整个江湖唯一入口，负责接收委托、了解全局和调度帮派</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="font-medium text-text-secondary shrink-0">帮主</span>
+              <span className="text-text-muted">- 帮派负责人，负责分派镖单、监控进展和解除阻塞</span>
             </div>
             <div className="flex gap-2">
               <span className="font-medium text-text-secondary shrink-0">弟子</span>
-              <span className="text-text-muted">- 执行角色，可继承帮派模型或使用独立 API 模型</span>
+              <span className="text-text-muted">- 执行角色，默认继承全局模型，必要时才单独配置</span>
             </div>
             <div className="flex gap-2">
               <span className="font-medium text-text-secondary shrink-0">委托</span>
@@ -89,7 +95,7 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
           <h3 className="text-sm font-semibold text-text-secondary mb-1">议事堂协作</h3>
           <div className="bg-surface-secondary shadow-sm rounded-lg p-3 space-y-2 text-sm text-text-secondary leading-relaxed flex-1">
             <p>
-              当天机阁或弟子无法单独判断时，可以开启议事堂。相关角色会围绕问题给出观点、证据、阻塞点和下一步建议。
+              当天机阁、帮主或弟子无法单独判断时，可以开启议事堂。相关角色会围绕问题给出观点、证据、阻塞点和下一步建议。
             </p>
             <p>
               查看<span className="font-medium text-text-secondary">议事堂</span>页面，打开记录可以看到类似群聊的讨论过程。
@@ -101,7 +107,7 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
           <h3 className="text-sm font-semibold text-text-secondary mb-1">控制资源使用</h3>
           <div className="bg-status-warning-bg rounded-lg p-3 space-y-2 text-sm text-text-secondary leading-relaxed flex-1">
             <p>
-              天机阁会按委托推进任务，并尽量控制资源消耗：
+              帮主会按委托推进任务，并尽量控制资源消耗：
             </p>
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -130,22 +136,22 @@ export function HelpPanel({ onStartWalkthrough }: HelpPanelProps): React.JSX.Ele
 
       <div className="grid grid-cols-3 gap-2">
         <button
-          onClick={() => window.open('https://github.com/zuzu-ai/room/issues/new')}
+          onClick={() => window.open(`${REPO_URL}/issues/new`)}
           className="w-full py-2 text-sm text-interactive hover:text-interactive-hover border border-border-primary hover:border-interactive rounded-lg transition-colors"
         >
           报告问题
         </button>
         <button
-          onClick={() => window.open('https://github.com/zuzu-ai/room')}
+          onClick={() => window.open(REPO_URL)}
           className="w-full py-2 text-sm text-status-warning hover:text-status-warning border border-yellow-200 hover:border-yellow-300 rounded-lg transition-colors"
         >
           GitHub Star
         </button>
         <button
-          onClick={() => { window.location.href = 'mailto:hello@email.zuzu.ai' }}
+          onClick={() => window.open(`${REPO_URL}/issues/new`)}
           className="w-full py-2 text-sm text-text-muted hover:text-text-secondary border border-border-primary hover:border-border-primary rounded-lg transition-colors"
         >
-          联系开发者
+          联系维护者
         </button>
       </div>
     </div>

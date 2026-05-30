@@ -10,7 +10,9 @@ export function registerWorkerTools(server: McpServer): void {
     {
       title: 'Create Worker',
       description:
-        'Create a named agent configuration (worker) with a system prompt that defines personality, capabilities, and constraints. '
+        'Create a named agent configuration (worker) in the inn. If roomId is provided, the worker is first created as an inn candidate and then recruited into that room. '
+        + '帮派选择弟子只能从客栈候选中调入。'
+        + 'The system prompt defines personality, capabilities, and constraints. '
         + 'Tasks can be assigned to workers. The worker\'s system prompt is passed to Claude CLI via --system-prompt on every task run. '
         + 'RESPONSE STYLE: Confirm briefly in 1 sentence. No notes, tips, or implementation details.',
       inputSchema: {
@@ -32,18 +34,23 @@ export function registerWorkerTools(server: McpServer): void {
     async ({ roomId, name, role, systemPrompt, description, isDefault, cycleGapMs, maxTurns }) => {
       const db = getMcpDatabase()
       if (roomId != null && !queries.getRoom(db, roomId)) {
-        return { content: [{ type: 'text' as const, text: `No room found with id ${roomId}.` }], isError: true }
+        return { content: [{ type: 'text' as const, text: `未找到帮派 #${roomId}。` }], isError: true }
       }
       // Apply role preset defaults (explicit args override preset)
       const preset = role ? WORKER_ROLE_PRESETS[role] : undefined
       const resolvedCycleGapMs = cycleGapMs ?? preset?.cycleGapMs ?? null
       const resolvedMaxTurns = maxTurns ?? preset?.maxTurns ?? null
-      queries.createWorker(db, { name, role, systemPrompt, description, isDefault, cycleGapMs: resolvedCycleGapMs, maxTurns: resolvedMaxTurns, roomId: roomId ?? undefined })
+      const worker = queries.createWorker(db, { name, role, systemPrompt, description, isDefault, cycleGapMs: resolvedCycleGapMs, maxTurns: resolvedMaxTurns })
+      if (roomId != null) {
+        queries.updateWorker(db, worker.id, { roomId })
+      }
       const label = role ? `"${name}" (${role})` : `"${name}"`
       return {
         content: [{
           type: 'text' as const,
-          text: `Created worker ${label}.`
+          text: roomId != null
+            ? `已在客栈登记弟子 ${label}，并调入帮派 #${roomId}。`
+            : `已在客栈登记弟子 ${label}。`
         }]
       }
     }
@@ -62,7 +69,7 @@ export function registerWorkerTools(server: McpServer): void {
       const db = getMcpDatabase()
       const workers = roomId != null ? queries.listRoomWorkers(db, roomId) : queries.listWorkers(db)
       if (workers.length === 0) {
-        return { content: [{ type: 'text' as const, text: 'No workers configured.' }] }
+        return { content: [{ type: 'text' as const, text: '暂无弟子。' }] }
       }
       const list = workers.map(w => ({
         id: w.id,
@@ -100,10 +107,10 @@ export function registerWorkerTools(server: McpServer): void {
       const db = getMcpDatabase()
       const worker = queries.getWorker(db, id)
       if (!worker) {
-        return { content: [{ type: 'text' as const, text: `No worker found with id ${id}.` }] }
+        return { content: [{ type: 'text' as const, text: `未找到弟子 #${id}。` }] }
       }
       if (roomId != null && worker.roomId !== roomId) {
-        return { content: [{ type: 'text' as const, text: `Worker ${id} does not belong to room ${roomId}.` }], isError: true }
+        return { content: [{ type: 'text' as const, text: `弟子 #${id} 不属于帮派 #${roomId}。` }], isError: true }
       }
       const updates: Record<string, unknown> = {}
       if (name !== undefined) updates.name = name
@@ -114,7 +121,7 @@ export function registerWorkerTools(server: McpServer): void {
       if (cycleGapMs !== undefined) updates.cycleGapMs = cycleGapMs
       if (maxTurns !== undefined) updates.maxTurns = maxTurns
       queries.updateWorker(db, id, updates)
-      return { content: [{ type: 'text' as const, text: `Updated worker "${worker.name}".` }] }
+      return { content: [{ type: 'text' as const, text: `已更新弟子「${worker.name}」。` }] }
     }
   )
 
@@ -133,13 +140,13 @@ export function registerWorkerTools(server: McpServer): void {
       const db = getMcpDatabase()
       const worker = queries.getWorker(db, id)
       if (!worker) {
-        return { content: [{ type: 'text' as const, text: `No worker found with id ${id}.` }] }
+        return { content: [{ type: 'text' as const, text: `未找到弟子 #${id}。` }] }
       }
       if (roomId != null && worker.roomId !== roomId) {
-        return { content: [{ type: 'text' as const, text: `Worker ${id} does not belong to room ${roomId}.` }], isError: true }
+        return { content: [{ type: 'text' as const, text: `弟子 #${id} 不属于帮派 #${roomId}。` }], isError: true }
       }
       queries.deleteWorker(db, id)
-      return { content: [{ type: 'text' as const, text: `Deleted worker "${worker.name}".` }] }
+      return { content: [{ type: 'text' as const, text: `已删除弟子「${worker.name}」。` }] }
     }
   )
 }

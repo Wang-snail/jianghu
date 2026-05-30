@@ -1,7 +1,7 @@
 import { usePolling } from '../hooks/usePolling'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useTick } from '../hooks/useTick'
-import type { Task, TaskRun, Worker, ConsoleLogEntry } from '@shared/types'
+import type { Task, TaskRun, Worker, ConsoleLogEntry, WorkerCycle } from '@shared/types'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useContainerWidth } from '../hooks/useContainerWidth'
 import { api } from '../lib/client'
@@ -9,9 +9,10 @@ import { wsClient, type WsMessage } from '../lib/ws'
 import { Select } from './Select'
 import { AutoModeLockModal, AUTO_MODE_LOCKED_BUTTON_CLASS, modeAwareButtonClass, useAutonomyControlGate } from './AutonomyControlGate'
 import { isAssignableWorker } from '@shared/worker-roles'
+import { isDecisionTaskFlowRelation, parseTaskFlowSpec, taskFlowRelationLabel, upsertTaskFlowDescription, type TaskFlowPatch, type TaskFlowRelation } from '@shared/task-flow'
 
 type StatusFilter = 'all' | 'active' | 'paused' | 'completed'
-type TaskViewMode = 'kanban' | 'gantt' | 'table'
+type TaskViewMode = 'kanban' | 'flow' | 'gantt' | 'table'
 
 // Module-level persistence: survives component unmounts during tab switches
 let persistedFilter: StatusFilter = 'all'
@@ -144,6 +145,1062 @@ function taskEta(task: Task): string {
   if (task.scheduledAt) return new Date(task.scheduledAt).toLocaleString()
   if (task.triggerType === 'manual') return '手动运行后确认'
   return task.cronExpression ? describeCron(task.cronExpression) : '待排期'
+}
+
+function compactText(value: string | null | undefined, max = 72): string {
+  const text = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+function extractTaskField(task: Task, labels: string[], fallback: string): string {
+  const text = `${task.description ?? ''}\n${task.prompt ?? ''}`
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = text.match(new RegExp(`${escaped}\\s*[：:]\\s*([^\\n]+)`, 'i'))
+    if (match?.[1]?.trim()) return compactText(match[1], 86)
+  }
+  return fallback
+}
+
+function taskUpstream(task: Task): string {
+  return parseTaskFlowSpec(task).upstream || extractTaskField(task, ['上游输入', '输入来源', '上游', '来源'], '来自帮主分派')
+}
+
+function taskDownstream(task: Task): string {
+  return parseTaskFlowSpec(task).downstream || extractTaskField(task, ['下游接收方', '下游', '交给谁', '接收方'], '交给帮主验收')
+}
+
+function taskOutputFormat(task: Task): string {
+  return parseTaskFlowSpec(task).outputFormat || extractTaskField(task, ['输出格式', '交付格式', '输出目标'], '按镖单要求交付')
+}
+
+function taskFlowOrder(task: Task, fallback: number): number {
+  return parseTaskFlowSpec(task).order ?? fallback + 1
+}
+
+const TASK_FLOW_RELATION_OPTIONS: Array<{ value: TaskFlowRelation; label: string }> = [
+  { value: 'sequential', label: '串行' },
+  { value: 'parallel', label: '并行' },
+  { value: 'conditional', label: '条件分支' },
+  { value: 'join', label: '汇合' },
+  { value: 'review', label: '审核' },
+  { value: 'rework', label: '返工' },
+]
+
+function relationStroke(relation: TaskFlowRelation): string {
+  if (relation === 'parallel') return 'var(--status-info)'
+  if (relation === 'conditional') return 'var(--status-warning)'
+  if (relation === 'join') return 'var(--status-success)'
+  if (relation === 'review') return 'var(--interactive)'
+  if (relation === 'rework') return 'var(--status-error)'
+  return 'var(--interactive)'
+}
+
+function relationPillClass(relation: TaskFlowRelation): string {
+  if (relation === 'parallel') return 'bg-status-info-bg text-status-info'
+  if (relation === 'conditional') return 'bg-status-warning-bg text-status-warning'
+  if (relation === 'join') return 'bg-status-success-bg text-status-success'
+  if (relation === 'review') return 'bg-interactive-bg text-interactive'
+  if (relation === 'rework') return 'bg-status-error-bg text-status-error'
+  return 'bg-surface-tertiary text-text-muted'
+}
+
+function dependencyIds(value: string, taskIds: Set<number>): number[] {
+  const ids = new Set<number>()
+  for (const match of value.matchAll(/#?(\d+)/g)) {
+    const id = Number(match[1])
+    if (taskIds.has(id)) ids.add(id)
+  }
+  return [...ids]
+}
+
+function taskProgressPercent(task: Task, run?: TaskRun): number {
+  if (run?.progress != null) return Math.round(run.progress * 100)
+  if (task.status === 'completed') return 100
+  if (task.status === 'paused') return 20
+  if (task.status === 'active') return 45
+  if (task.status === 'error') return 12
+  return 8
+}
+
+function cycleStatusLabel(status: string): string {
+  if (status === 'running') return '进行中'
+  if (status === 'completed') return '已完成'
+  if (status === 'failed' || status === 'error') return '失败'
+  return status || '待记录'
+}
+
+function cycleStatusTone(status: string): string {
+  if (status === 'running') return 'bg-interactive-bg text-interactive'
+  if (status === 'completed') return 'bg-status-success-bg text-status-success'
+  if (status === 'failed' || status === 'error') return 'bg-status-error-bg text-status-error'
+  return 'bg-surface-tertiary text-text-muted'
+}
+
+function formatCycleTime(cycle?: WorkerCycle): string {
+  if (!cycle) return '等待记录'
+  const started = new Date(cycle.startedAt)
+  if (Number.isNaN(started.getTime())) return cycleStatusLabel(cycle.status)
+  return started.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function fallbackHeartbeatCount(task: Task, run?: TaskRun): number {
+  const progress = taskProgressPercent(task, run)
+  if (task.status === 'completed') return 4
+  if (task.status === 'paused') return 1
+  return clampNumber(Math.ceil(progress / 25), 1, 4)
+}
+
+function heartbeatWorkLabel(task: Task, cycle: WorkerCycle | undefined, run: TaskRun | undefined, stepIndex: number, span: number): string {
+  if (cycle?.errorMessage) return `排查失败：${compactText(cycle.errorMessage, 34)}`
+  if (task.status === 'paused') return `处理阻塞：${compactText(taskBlocker(task), 34)}`
+  if (span <= 1) return `解决：${compactText(taskProblem(task), 34)}`
+  if (stepIndex === 0) return `明确问题：${compactText(taskProblem(task), 34)}`
+  if (stepIndex === span - 1 && task.status === 'completed') {
+    return `交付：${compactText(task.lastResult || taskOutputFormat(task), 34)}`
+  }
+  if (stepIndex === span - 1) return `准备交付：${compactText(taskOutputFormat(task), 34)}`
+  return `继续推进：${compactText(taskProgress(task, run), 34)}`
+}
+
+function HeartbeatGanttView({
+  tasks,
+  workerMap,
+  runningByTaskId,
+  cycles,
+}: {
+  tasks: Task[]
+  workerMap: Map<number, Worker>
+  runningByTaskId: Map<number, TaskRun>
+  cycles: WorkerCycle[]
+}): React.JSX.Element {
+  const orderedCycles = useMemo(() => {
+    return [...cycles]
+      .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+      .slice(-12)
+  }, [cycles])
+  const realHeartbeatCount = orderedCycles.length
+  const fallbackCount = Math.max(4, ...tasks.map(task => fallbackHeartbeatCount(task, runningByTaskId.get(task.id))))
+  const heartbeatCount = clampNumber(realHeartbeatCount || fallbackCount, 4, 12)
+  const columns = realHeartbeatCount > 0
+    ? orderedCycles.slice(-heartbeatCount).map((cycle, index) => ({ key: String(cycle.id), label: `心跳 ${index + 1}`, cycle }))
+    : Array.from({ length: heartbeatCount }, (_, index) => ({ key: `synthetic-${index + 1}`, label: `心跳 ${index + 1}`, cycle: undefined }))
+  const leftColumnWidth = 220
+  const heartbeatColumnWidth = 160
+  const heartbeatTrackWidth = heartbeatCount * heartbeatColumnWidth
+  const chartWidth = leftColumnWidth + heartbeatTrackWidth
+
+  return (
+    <div className="p-3 overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div
+        className="rounded-lg border border-border-primary bg-surface-primary"
+        style={{ width: chartWidth, minWidth: '100%' }}
+      >
+        <div
+          className="grid border-b border-border-primary bg-surface-secondary"
+          style={{ gridTemplateColumns: `${leftColumnWidth}px ${heartbeatTrackWidth}px` }}
+        >
+          <div className="sticky left-0 z-20 border-r border-border-primary bg-surface-secondary px-4 py-3 text-xs font-semibold text-text-secondary">镖单 / 弟子</div>
+          <div className="grid" style={{ gridTemplateColumns: `repeat(${heartbeatCount}, ${heartbeatColumnWidth}px)` }}>
+            {columns.map(({ key, label, cycle }) => {
+              const worker = cycle?.workerId != null ? workerMap.get(cycle.workerId) : undefined
+              return (
+                <div key={key} className="border-l border-border-primary px-3 py-2">
+                  <div className="text-xs font-semibold text-text-primary">{label}</div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                    <span>{formatCycleTime(cycle)}</span>
+                    {cycle && (
+                      <span className={`rounded-full px-1.5 py-0.5 ${cycleStatusTone(cycle.status)}`}>
+                        {cycleStatusLabel(cycle.status)}
+                      </span>
+                    )}
+                  </div>
+                  {worker && (
+                    <div className="mt-1 truncate text-[11px] text-text-muted">{worker.name}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="divide-y divide-border-primary">
+          {tasks.map((task, index) => {
+            const run = runningByTaskId.get(task.id)
+            const worker = task.workerId != null ? workerMap.get(task.workerId) : undefined
+            const taskCycles = task.workerId != null
+              ? columns.map(column => column.cycle).filter((cycle): cycle is WorkerCycle => cycle?.workerId === task.workerId)
+              : []
+            const firstCycleIndex = taskCycles.length > 0
+              ? columns.findIndex(column => column.cycle?.id === taskCycles[0].id)
+              : -1
+            const rawSpan = taskCycles.length > 0 ? taskCycles.length : fallbackHeartbeatCount(task, run)
+            const span = clampNumber(rawSpan, 1, heartbeatCount)
+            const fallbackStart = task.status === 'completed'
+              ? 0
+              : task.status === 'paused'
+                ? 0
+                : index % Math.max(1, heartbeatCount - span + 1)
+            const start = clampNumber(firstCycleIndex >= 0 ? firstCycleIndex : fallbackStart, 0, Math.max(0, heartbeatCount - span))
+            const statusClass = task.status === 'paused'
+              ? 'bg-status-warning-bg/80 border-status-warning/30'
+              : task.status === 'completed'
+                ? 'bg-status-success-bg/80 border-status-success/30'
+                : 'bg-interactive-bg/80 border-interactive/30'
+
+            return (
+              <div
+                key={task.id}
+                className="grid min-h-[92px] bg-surface-primary"
+                style={{ gridTemplateColumns: `${leftColumnWidth}px ${heartbeatTrackWidth}px` }}
+              >
+                <div className="sticky left-0 z-10 min-w-0 border-r border-border-primary bg-surface-primary px-4 py-3">
+                  <div className="text-sm font-semibold text-text-primary truncate">{task.name}</div>
+                  <div className="mt-1 text-xs text-text-muted truncate">{worker?.name ?? '未分派'} · {statusLabel(task.status)}</div>
+                  <div className="mt-2 text-[11px] text-text-muted truncate">{taskEta(task)}</div>
+                </div>
+                <div className="relative">
+                  <div className="grid h-full" style={{ gridTemplateColumns: `repeat(${heartbeatCount}, ${heartbeatColumnWidth}px)` }}>
+                    {columns.map((column, columnIndex) => {
+                      const active = columnIndex >= start && columnIndex < start + span
+                      const activeOffset = columnIndex - start
+                      const cycle = active ? taskCycles[activeOffset] : undefined
+                      return (
+                        <div key={`${task.id}-${column.key}`} className="relative border-l border-border-primary px-2 py-3">
+                          {active && (
+                            <div className="relative z-10 rounded-lg bg-surface-primary/80 px-2 py-1 text-[11px] leading-snug text-text-secondary shadow-sm">
+                              {heartbeatWorkLabel(task, cycle, run, activeOffset, span)}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div
+                    className={`pointer-events-none absolute top-5 bottom-5 rounded-lg border ${statusClass} transition-all duration-500`}
+                    style={{
+                      left: `calc(${(start / heartbeatCount) * 100}% + 8px)`,
+                      width: `calc(${(span / heartbeatCount) * 100}% - 16px)`,
+                    }}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FlowCard({
+  task,
+  worker,
+  run,
+  index,
+  total,
+  workers,
+  onAssignWorker,
+  onMove,
+  onEdit,
+}: {
+  task: Task
+  worker?: Worker
+  run?: TaskRun
+  index: number
+  total: number
+  workers: Worker[]
+  onAssignWorker: (taskId: number, workerId: number | null) => void
+  onMove: (taskId: number, direction: -1 | 1) => void
+  onEdit: (task: Task) => void
+}): React.JSX.Element {
+  const progress = taskProgressPercent(task, run)
+  const statusColor = task.status === 'completed'
+    ? 'bg-status-success'
+    : task.status === 'paused'
+      ? 'bg-status-warning'
+      : task.status === 'error'
+        ? 'bg-status-error'
+        : 'bg-interactive'
+
+  return (
+    <div className="relative min-w-[236px] max-w-[236px] rounded-lg border border-border-primary bg-surface-secondary p-3 shadow-sm">
+      <div className={`absolute -left-1 top-4 h-2.5 w-2.5 rounded-full ${statusColor}`} />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-text-primary truncate">{task.name}</div>
+          <div className="mt-0.5 text-[11px] text-text-muted truncate">{worker?.name ?? '未分派弟子'}</div>
+        </div>
+        <span className="shrink-0 text-[11px] text-text-muted">{statusLabel(task.status)}</span>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-surface-tertiary overflow-hidden">
+        <div className={`h-full rounded-full ${statusColor} transition-[width] duration-500`} style={{ width: `${progress}%` }} />
+      </div>
+      <div className="mt-2 space-y-1 text-[11px] leading-relaxed text-text-muted">
+        <div><span className="text-text-secondary">上游：</span>{taskUpstream(task)}</div>
+        <div><span className="text-text-secondary">下游：</span>{taskDownstream(task)}</div>
+        <div><span className="text-text-secondary">格式：</span>{taskOutputFormat(task)}</div>
+        <div><span className="text-text-secondary">进展：</span>{compactText(taskProgress(task, run), 86)}</div>
+      </div>
+      <div className="mt-3 border-t border-border-primary pt-2">
+        <Select
+          value={String(task.workerId ?? '')}
+          onChange={(value) => onAssignWorker(task.id, value ? Number(value) : null)}
+          variant="inline"
+          className="w-full text-xs"
+          placeholder="选择弟子"
+          options={[
+            { value: '', label: '未分派' },
+            ...workers.map(item => ({ value: String(item.id), label: item.name }))
+          ]}
+        />
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onMove(task.id, -1)}
+            disabled={index === 0}
+            className="rounded-lg border border-border-primary px-2 py-1 text-[11px] text-text-secondary disabled:opacity-40"
+          >
+            前移
+          </button>
+          <button
+            type="button"
+            onClick={() => onMove(task.id, 1)}
+            disabled={index >= total - 1}
+            className="rounded-lg border border-border-primary px-2 py-1 text-[11px] text-text-secondary disabled:opacity-40"
+          >
+            后移
+          </button>
+          <button
+            type="button"
+            onClick={() => onEdit(task)}
+            className="ml-auto rounded-lg bg-interactive-bg px-2 py-1 text-[11px] text-interactive"
+          >
+            调整交接
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SwimlaneFlowView({
+  tasks,
+  workers,
+  workerMap,
+  runningByTaskId,
+  onAssignWorker,
+  onUpdateFlow,
+  onFlowRepaired,
+}: {
+  tasks: Task[]
+  workers: Worker[]
+  workerMap: Map<number, Worker>
+  runningByTaskId: Map<number, TaskRun>
+  onAssignWorker: (taskId: number, workerId: number | null) => Promise<void>
+  onUpdateFlow: (task: Task, patch: TaskFlowPatch) => Promise<void>
+  onFlowRepaired: () => void
+}): React.JSX.Element {
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [draftUpstream, setDraftUpstream] = useState('')
+  const [draftDownstream, setDraftDownstream] = useState('')
+  const [draftOutputFormat, setDraftOutputFormat] = useState('')
+  const [draftRelation, setDraftRelation] = useState<TaskFlowRelation>('sequential')
+  const [draftDependsOn, setDraftDependsOn] = useState('')
+  const [draftParallelGroup, setDraftParallelGroup] = useState('')
+  const [draftOptimizationGoal, setDraftOptimizationGoal] = useState('')
+  const [draftRelationReason, setDraftRelationReason] = useState('')
+  const [draftCondition, setDraftCondition] = useState('')
+  const [draftJoinPolicy, setDraftJoinPolicy] = useState('')
+  const [draftReworkTarget, setDraftReworkTarget] = useState('')
+  const [savingTaskId, setSavingTaskId] = useState<number | null>(null)
+  const [flowFeedback, setFlowFeedback] = useState('')
+  const [flowFeedbackBusy, setFlowFeedbackBusy] = useState(false)
+  const [flowFeedbackNotice, setFlowFeedbackNotice] = useState('')
+  const orderedTasks = [...tasks].sort((a, b) => {
+    const indexA = tasks.findIndex(task => task.id === a.id)
+    const indexB = tasks.findIndex(task => task.id === b.id)
+    const orderA = taskFlowOrder(a, indexA)
+    const orderB = taskFlowOrder(b, indexB)
+    if (orderA !== orderB) return orderA - orderB
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  })
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(orderedTasks[0]?.id ?? null)
+  const workerIdsInTasks = new Set(orderedTasks.map(task => task.workerId).filter((id): id is number => id != null))
+  const laneWorkers = workers.filter(worker => workerIdsInTasks.has(worker.id))
+  const hasUnassigned = orderedTasks.some(task => task.workerId == null || !workerMap.has(task.workerId))
+  const lanes: Array<{ key: string; title: string; subtitle: string; worker?: Worker }> = [
+    ...laneWorkers.map(worker => ({
+      key: `worker-${worker.id}`,
+      title: worker.name,
+      subtitle: worker.role ?? '弟子',
+      worker,
+    })),
+    ...(hasUnassigned ? [{ key: 'unassigned', title: '未分派', subtitle: '等待帮主安排' }] : []),
+  ]
+
+  if (lanes.length === 0) {
+    lanes.push({ key: 'empty', title: '暂无弟子泳道', subtitle: '等待帮主从客栈调入弟子' })
+  }
+
+  const taskIds = new Set(orderedTasks.map(task => task.id))
+  const flowSpecs = new Map(orderedTasks.map(task => [task.id, parseTaskFlowSpec(task)]))
+  const laneIndexByKey = new Map(lanes.map((lane, index) => [lane.key, index]))
+  const laneKeyForTask = (task: Task): string => {
+    if (task.workerId != null && workerMap.has(task.workerId)) return `worker-${task.workerId}`
+    return hasUnassigned ? 'unassigned' : lanes[0]?.key ?? 'empty'
+  }
+  const stageValues = [...new Set(orderedTasks.map((task, index) => taskFlowOrder(task, index)))].sort((a, b) => a - b)
+  const stageIndexByOrder = new Map(stageValues.map((order, index) => [order, index]))
+  const previousStageTasks = (task: Task, fallbackIndex: number): Task[] => {
+    const order = taskFlowOrder(task, fallbackIndex)
+    const previousOrder = [...stageValues].reverse().find(candidate => candidate < order)
+    if (previousOrder == null) return []
+    return orderedTasks.filter((candidate, candidateIndex) => taskFlowOrder(candidate, candidateIndex) === previousOrder)
+  }
+  const flowEdges: Array<{ fromId: number; toId: number; relation: TaskFlowRelation; label: string; dashed?: boolean }> = []
+  orderedTasks.forEach((task, index) => {
+    const spec = flowSpecs.get(task.id) ?? parseTaskFlowSpec(task)
+    const reworkTargets = dependencyIds(spec.reworkTarget, taskIds)
+    if (spec.relation === 'rework' && reworkTargets.length > 0) {
+      for (const targetId of reworkTargets) {
+        flowEdges.push({ fromId: task.id, toId: targetId, relation: 'rework', label: '返工', dashed: true })
+      }
+      return
+    }
+
+    const explicitDeps = dependencyIds(spec.dependsOn, taskIds).filter(id => id !== task.id)
+    const deps = explicitDeps.length > 0
+      ? explicitDeps
+      : spec.relation === 'join'
+        ? previousStageTasks(task, index).map(item => item.id)
+        : orderedTasks[index - 1]
+          ? [orderedTasks[index - 1].id]
+          : []
+    for (const fromId of deps) {
+      flowEdges.push({
+        fromId,
+        toId: task.id,
+        relation: spec.relation,
+        label: taskFlowRelationLabel(spec.relation),
+        dashed: spec.relation === 'conditional',
+      })
+    }
+  })
+
+  const idsKey = orderedTasks.map(task => task.id).join(',')
+  useEffect(() => {
+    if (orderedTasks.length === 0) {
+      setSelectedTaskId(null)
+      return
+    }
+    if (selectedTaskId == null || !orderedTasks.some(task => task.id === selectedTaskId)) {
+      setSelectedTaskId(orderedTasks[0].id)
+    }
+  }, [idsKey, orderedTasks, selectedTaskId])
+
+  const selectedTask = orderedTasks.find(task => task.id === selectedTaskId) ?? orderedTasks[0] ?? null
+  const selectedIndex = selectedTask ? orderedTasks.findIndex(task => task.id === selectedTask.id) : -1
+  const selectedWorker = selectedTask?.workerId != null ? workerMap.get(selectedTask.workerId) : undefined
+  const selectedRun = selectedTask ? runningByTaskId.get(selectedTask.id) : undefined
+  const nodeWidth = 230
+  const nodeHeight = 82
+  const xGap = 112
+  const yGap = 34
+  const canvasWidth = Math.max(760, Math.max(stageValues.length, 1) * (nodeWidth + xGap) + 88)
+  const canvasHeight = Math.max(220, lanes.length * (nodeHeight + yGap) + 92)
+  const nodePosById = new Map<number, { x: number; y: number }>()
+  orderedTasks.forEach((task, index) => {
+    const order = taskFlowOrder(task, index)
+    const stageIndex = stageIndexByOrder.get(order) ?? index
+    const laneIndex = laneIndexByKey.get(laneKeyForTask(task)) ?? 0
+    nodePosById.set(task.id, {
+      x: 44 + stageIndex * (nodeWidth + xGap),
+      y: 54 + laneIndex * (nodeHeight + yGap),
+    })
+  })
+  const nodeStatusClass = (task: Task, selected: boolean): string => {
+    if (selected) return 'bg-interactive text-text-invert border-interactive shadow-lg shadow-black/20'
+    if (task.status === 'completed') return 'bg-status-success-bg text-status-success border-status-success/30'
+    if (task.status === 'paused') return 'bg-status-warning-bg text-status-warning border-status-warning/30'
+    if (task.status === 'error') return 'bg-status-error-bg text-status-error border-status-error/30'
+    return 'bg-surface-secondary text-text-primary border-border-primary hover:border-interactive/50 hover:bg-surface-hover'
+  }
+
+  function openEdit(item: Task): void {
+    const spec = parseTaskFlowSpec(item)
+    setEditingTask(item)
+    setDraftUpstream(spec.upstream || taskUpstream(item))
+    setDraftDownstream(spec.downstream || taskDownstream(item))
+    setDraftOutputFormat(spec.outputFormat || taskOutputFormat(item))
+    setDraftRelation(spec.relation)
+    setDraftDependsOn(spec.dependsOn)
+    setDraftParallelGroup(spec.parallelGroup)
+    setDraftOptimizationGoal(spec.optimizationGoal)
+    setDraftRelationReason(spec.relationReason)
+    setDraftCondition(spec.condition)
+    setDraftJoinPolicy(spec.joinPolicy)
+    setDraftReworkTarget(spec.reworkTarget)
+  }
+
+  function moveTask(taskId: number, direction: -1 | 1): void {
+    const currentIndex = orderedTasks.findIndex(item => item.id === taskId)
+    const other = orderedTasks[currentIndex + direction]
+    const current = orderedTasks[currentIndex]
+    if (!current || !other) return
+    setSavingTaskId(taskId)
+    void Promise.all([
+      onUpdateFlow(current, { order: currentIndex + direction + 1 }),
+      onUpdateFlow(other, { order: currentIndex + 1 }),
+    ]).finally(() => setSavingTaskId(null))
+  }
+
+  async function sendFlowFeedback(): Promise<void> {
+    const issue = flowFeedback.trim()
+    if (!issue || flowFeedbackBusy) return
+    const roomId = tasks.find(task => task.roomId != null)?.roomId ?? null
+    setFlowFeedbackBusy(true)
+    setFlowFeedbackNotice('')
+    try {
+      const result = await api.clerk.send([
+        '协作流程出错，请天机阁体检并修复。',
+        roomId != null ? `帮派ID：${roomId}` : '',
+        `用户反馈：${issue}`,
+        '要求：先调用 company_repair_task_flow 修复流程，再说明改了什么、哪些还需要帮主继续处理。'
+      ].filter(Boolean).join('\n'))
+      setFlowFeedback('')
+      setFlowFeedbackNotice(result.response || '已把流程问题交给天机阁处理。')
+      onFlowRepaired()
+    } catch (err) {
+      setFlowFeedbackNotice(err instanceof Error ? err.message : '反馈天机阁失败')
+    } finally {
+      setFlowFeedbackBusy(false)
+    }
+  }
+
+  return (
+    <div className="p-3">
+      <div className="mb-3 rounded-lg border border-border-primary bg-surface-secondary p-3">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
+          <label className="min-w-0 flex-1 text-xs font-medium text-text-muted">
+            流程出错反馈
+            <textarea
+              value={flowFeedback}
+              onChange={(event) => setFlowFeedback(event.target.value)}
+              rows={2}
+              placeholder="例如：判断节点连错了、某个弟子没有上游输入、审核节点不该接到报告整合..."
+              className="mt-1 w-full resize-y rounded-lg border border-border-primary bg-surface-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-text-muted focus:outline-none"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => { void sendFlowFeedback() }}
+            disabled={!flowFeedback.trim() || flowFeedbackBusy}
+            className="rounded-lg bg-interactive px-3 py-2 text-sm text-text-invert hover:bg-interactive-hover disabled:opacity-50"
+          >
+            {flowFeedbackBusy ? '天机阁修复中...' : '交给天机阁修复'}
+          </button>
+        </div>
+        {flowFeedbackNotice && (
+          <div className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary px-3 py-2 text-xs leading-5 text-text-muted">
+            {flowFeedbackNotice}
+          </div>
+        )}
+      </div>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="overflow-x-auto rounded-lg border border-border-primary bg-gradient-to-br from-surface-primary to-surface-secondary/80">
+          {orderedTasks.length === 0 ? (
+            <div className="p-8 text-center text-sm text-text-muted">暂无可展示流程。</div>
+          ) : (
+            <div className="relative" style={{ width: canvasWidth, height: canvasHeight }}>
+              <svg className="absolute inset-0" width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} aria-hidden="true">
+                <defs>
+                  <marker id="task-flow-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="var(--interactive)" opacity="0.85" />
+                  </marker>
+                </defs>
+                {flowEdges.map((edge) => {
+                  const from = nodePosById.get(edge.fromId)
+                  const to = nodePosById.get(edge.toId)
+                  if (!from || !to) return null
+                  const startX = from.x + nodeWidth - 2
+                  const startY = from.y + nodeHeight / 2
+                  const endX = to.x + 2
+                  const endY = to.y + nodeHeight / 2
+                  const mid = Math.max(54, Math.abs(endX - startX) / 2)
+                  const stroke = relationStroke(edge.relation)
+                  const path = endX >= startX
+                    ? `M ${startX} ${startY} C ${startX + mid} ${startY}, ${endX - mid} ${endY}, ${endX} ${endY}`
+                    : `M ${from.x + 2} ${startY} C ${from.x - mid} ${startY}, ${to.x + nodeWidth + mid} ${endY}, ${to.x + nodeWidth - 2} ${endY}`
+                  return (
+                    <g key={`edge-${edge.fromId}-${edge.toId}-${edge.relation}`}>
+                      <path
+                        d={path}
+                        fill="none"
+                        stroke={stroke}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeDasharray={edge.dashed ? '8 7' : undefined}
+                        markerEnd="url(#task-flow-arrow)"
+                        opacity="0.72"
+                      />
+                      {edge.relation !== 'sequential' && (
+                        <text
+                          x={(startX + endX) / 2}
+                          y={(startY + endY) / 2 - 8}
+                          fill={stroke}
+                          fontSize="12"
+                          fontWeight="600"
+                        >
+                          {edge.label}
+                        </text>
+                      )}
+                    </g>
+                  )
+                })}
+              </svg>
+
+              {orderedTasks.map((task, index) => {
+                const worker = task.workerId != null ? workerMap.get(task.workerId) : undefined
+                const run = runningByTaskId.get(task.id)
+                const progress = taskProgressPercent(task, run)
+                const selected = selectedTask?.id === task.id
+                const spec = flowSpecs.get(task.id) ?? parseTaskFlowSpec(task)
+                const isDecisionNode = isDecisionTaskFlowRelation(spec.relation)
+                const pos = nodePosById.get(task.id) ?? { x: 24 + index * (nodeWidth + xGap), y: 54 }
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setSelectedTaskId(task.id)}
+                    aria-label={`${task.name}，${isDecisionNode ? '判断节点' : '执行节点'}，${taskFlowRelationLabel(spec.relation)}`}
+                    className={`absolute flex h-[82px] w-[230px] items-center gap-3 border px-4 text-left transition-all ${
+                      isDecisionNode
+                        ? 'justify-center px-8'
+                        : 'rounded-[22px]'
+                    } ${nodeStatusClass(task, selected)}`}
+                    style={{
+                      left: pos.x,
+                      top: pos.y,
+                      ...(isDecisionNode ? { clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' } : {}),
+                    }}
+                  >
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-white/15' : 'bg-surface-primary/70'} ${isDecisionNode ? 'hidden' : ''}`}>
+                      <svg width="24" height="24" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeOpacity="0.28" strokeWidth="3" />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="8"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeDasharray={`${Math.max(6, progress * 0.5)} 50`}
+                          transform="rotate(-90 12 12)"
+                        />
+                      </svg>
+                    </span>
+                    <span className={isDecisionNode ? 'min-w-0 max-w-[150px] text-center' : 'min-w-0 flex-1'}>
+                      <span className="block truncate text-sm font-semibold">{task.name}</span>
+                      <span className={`mt-1 block truncate text-xs ${selected ? 'text-text-invert/80' : 'text-text-muted'}`}>
+                        {worker?.name ?? '未分派'} · {statusLabel(task.status)}
+                      </span>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] ${selected ? 'bg-white/15 text-text-invert' : relationPillClass(spec.relation)}`}>
+                        {taskFlowRelationLabel(spec.relation)}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 ${selected ? 'text-text-invert/90' : 'text-interactive'} ${isDecisionNode ? 'hidden' : ''}`}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93" />
+                        <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19.07" />
+                      </svg>
+                    </span>
+                    {savingTaskId === task.id && (
+                      <span className="absolute -bottom-6 left-4 rounded-full border border-interactive/30 bg-surface-primary px-2 py-0.5 text-[11px] text-interactive">
+                        保存中...
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="rounded-lg border border-border-primary bg-surface-secondary p-4">
+          {selectedTask ? (
+            <>
+              {(() => {
+                const selectedSpec = flowSpecs.get(selectedTask.id) ?? parseTaskFlowSpec(selectedTask)
+                return (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-text-primary">节点详情</div>
+                  <div className="mt-1 truncate text-base font-semibold text-text-primary">{selectedTask.name}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                    <span>第 {selectedIndex + 1} 步</span>
+                    <span>{statusLabel(selectedTask.status)}</span>
+                    <span className={`rounded-full px-2 py-0.5 ${relationPillClass(selectedSpec.relation)}`}>{taskFlowRelationLabel(selectedSpec.relation)}</span>
+                  </div>
+                </div>
+                <span className="rounded-lg bg-surface-tertiary px-2 py-1 text-xs text-text-secondary">
+                  {taskProgressPercent(selectedTask, selectedRun)}%
+                </span>
+              </div>
+                )
+              })()}
+
+              <div className="mt-4">
+                <div className="text-xs font-medium text-text-muted">负责人</div>
+                <Select
+                  value={String(selectedTask.workerId ?? '')}
+                  onChange={(value) => {
+                    setSavingTaskId(selectedTask.id)
+                    void onAssignWorker(selectedTask.id, value ? Number(value) : null).finally(() => setSavingTaskId(null))
+                  }}
+                  className="mt-1 w-full text-sm"
+                  placeholder="选择弟子"
+                  options={[
+                    { value: '', label: '未分派' },
+                    ...workers.map(item => ({ value: String(item.id), label: item.name }))
+                  ]}
+                />
+                {selectedWorker && <div className="mt-1 text-xs text-text-muted">{selectedWorker.role || '弟子'}</div>}
+              </div>
+
+              <div className="mt-4 space-y-3 text-sm">
+                <div>
+                  <div className="text-xs font-medium text-text-muted">正在解决</div>
+                  <div className="mt-1 text-text-secondary">{taskProblem(selectedTask)}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-text-muted">当前进展</div>
+                  <div className="mt-1 text-text-secondary">{taskProgress(selectedTask, selectedRun)}</div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+                  {(() => {
+                    const selectedSpec = flowSpecs.get(selectedTask.id) ?? parseTaskFlowSpec(selectedTask)
+                    return (
+                      <>
+                        <div className="rounded-lg bg-surface-primary p-3">
+                          <div className="text-xs font-medium text-text-muted">逻辑关系</div>
+                          <div className="mt-1 text-text-secondary">{taskFlowRelationLabel(selectedSpec.relation)}</div>
+                          {(selectedSpec.dependsOn || selectedSpec.parallelGroup || selectedSpec.optimizationGoal || selectedSpec.relationReason || selectedSpec.condition || selectedSpec.joinPolicy || selectedSpec.reworkTarget) && (
+                            <div className="mt-2 space-y-1 text-xs text-text-muted">
+                              {selectedSpec.dependsOn && <div>依赖：{selectedSpec.dependsOn}</div>}
+                              {selectedSpec.parallelGroup && <div>并行组：{selectedSpec.parallelGroup}</div>}
+                              {selectedSpec.optimizationGoal && <div>优化：{selectedSpec.optimizationGoal}</div>}
+                              {selectedSpec.relationReason && <div>依据：{selectedSpec.relationReason}</div>}
+                              {selectedSpec.condition && <div>条件：{selectedSpec.condition}</div>}
+                              {selectedSpec.joinPolicy && <div>汇合：{selectedSpec.joinPolicy}</div>}
+                              {selectedSpec.reworkTarget && <div>返工：{selectedSpec.reworkTarget}</div>}
+                            </div>
+                          )}
+                          {selectedSpec.relation !== 'sequential' && !selectedSpec.optimizationGoal && !selectedSpec.relationReason && (
+                            <div className="mt-2 rounded-lg bg-status-warning-bg px-2 py-1 text-xs text-status-warning">
+                              缺少业务依据；请说明这样安排是为了提速、提质、控风险还是降成本。
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )
+                  })()}
+                  <div className="rounded-lg bg-surface-primary p-3">
+                    <div className="text-xs font-medium text-text-muted">上游输入</div>
+                    <div className="mt-1 text-text-secondary">{taskUpstream(selectedTask)}</div>
+                  </div>
+                  <div className="rounded-lg bg-surface-primary p-3">
+                    <div className="text-xs font-medium text-text-muted">下游接收</div>
+                    <div className="mt-1 text-text-secondary">{taskDownstream(selectedTask)}</div>
+                  </div>
+                  <div className="rounded-lg bg-surface-primary p-3">
+                    <div className="text-xs font-medium text-text-muted">输出格式</div>
+                    <div className="mt-1 text-text-secondary">{taskOutputFormat(selectedTask)}</div>
+                  </div>
+                  <div className="rounded-lg bg-surface-primary p-3">
+                    <div className="text-xs font-medium text-text-muted">困难 / 预计完成</div>
+                    <div className="mt-1 text-text-secondary">{taskBlocker(selectedTask)} · {taskEta(selectedTask)}</div>
+                  </div>
+                </div>
+                {selectedTask.lastResult && (
+                  <div>
+                    <div className="text-xs font-medium text-text-muted">最近结果</div>
+                    <div className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary p-3 text-xs leading-5 text-text-muted">
+                      {selectedTask.lastResult}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-border-primary pt-3">
+                <button
+                  type="button"
+                  onClick={() => moveTask(selectedTask.id, -1)}
+                  disabled={selectedIndex <= 0}
+                  className="rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary disabled:opacity-40"
+                >
+                  前移
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveTask(selectedTask.id, 1)}
+                  disabled={selectedIndex < 0 || selectedIndex >= orderedTasks.length - 1}
+                  className="rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary disabled:opacity-40"
+                >
+                  后移
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openEdit(selectedTask)}
+                  className="rounded-lg bg-interactive px-3 py-2 text-xs text-text-invert"
+                >
+                  调整交接
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-text-muted">选择一个节点查看详情。</div>
+          )}
+        </aside>
+      </div>
+
+      {false && (
+      <div className="overflow-x-auto rounded-lg border border-border-primary bg-surface-primary">
+        <div className="min-w-max">
+          <div
+            className="grid border-b border-border-primary bg-surface-secondary"
+            style={{ gridTemplateColumns: `160px repeat(${Math.max(orderedTasks.length, 1)}, 256px)` }}
+          >
+            <div className="sticky left-0 z-10 bg-surface-secondary px-3 py-2 text-xs font-semibold text-text-muted border-r border-border-primary">
+              弟子泳道
+            </div>
+            {orderedTasks.length > 0 ? orderedTasks.map((task, index) => (
+              <div key={task.id} className="px-3 py-2 text-xs text-text-muted border-r border-border-primary last:border-r-0">
+                第 {index + 1} 步 · {compactText(task.name, 20)}
+              </div>
+            )) : (
+              <div className="px-3 py-2 text-xs text-text-muted">暂无镖单</div>
+            )}
+          </div>
+          {lanes.map((lane) => (
+            <div
+              key={lane.key}
+              className="grid border-b border-border-primary last:border-b-0"
+              style={{ gridTemplateColumns: `160px repeat(${Math.max(orderedTasks.length, 1)}, 256px)` }}
+            >
+              <div className="sticky left-0 z-10 bg-surface-primary border-r border-border-primary px-3 py-4">
+                <div className="text-sm font-semibold text-text-secondary">{lane.title}</div>
+                <div className="mt-0.5 text-xs text-text-muted">{lane.subtitle}</div>
+              </div>
+              {orderedTasks.length > 0 ? orderedTasks.map((task, index) => {
+                const belongsToLane = lane.worker
+                  ? task.workerId === lane.worker.id
+                  : task.workerId == null || (lane.key === 'unassigned' && !workerMap.has(task.workerId))
+                const worker = task.workerId != null ? workerMap.get(task.workerId) : undefined
+                return (
+                  <div key={task.id} className="relative min-h-[220px] border-r border-border-primary last:border-r-0 p-3">
+                    {index < orderedTasks.length - 1 && (
+                      <div className="absolute right-[-10px] top-1/2 z-0 hidden h-px w-5 bg-border-primary md:block" />
+                    )}
+                    {belongsToLane ? (
+                      <FlowCard
+                        task={task}
+                        worker={worker}
+                        run={runningByTaskId.get(task.id)}
+                        index={index}
+                        total={orderedTasks.length}
+                        workers={workers}
+                        onAssignWorker={(taskId, workerId) => {
+                          setSavingTaskId(taskId)
+                          void onAssignWorker(taskId, workerId).finally(() => setSavingTaskId(null))
+                        }}
+                        onMove={(taskId, direction) => {
+                          const currentIndex = orderedTasks.findIndex(item => item.id === taskId)
+                          const other = orderedTasks[currentIndex + direction]
+                          const current = orderedTasks[currentIndex]
+                          if (!current || !other) return
+                          setSavingTaskId(taskId)
+                          void Promise.all([
+                            onUpdateFlow(current, { order: currentIndex + direction + 1 }),
+                            onUpdateFlow(other, { order: currentIndex + 1 }),
+                          ]).finally(() => setSavingTaskId(null))
+                        }}
+                        onEdit={(item) => {
+                          const spec = parseTaskFlowSpec(item)
+                          setEditingTask(item)
+                          setDraftUpstream(spec.upstream || taskUpstream(item))
+                          setDraftDownstream(spec.downstream || taskDownstream(item))
+                          setDraftOutputFormat(spec.outputFormat || taskOutputFormat(item))
+                        }}
+                      />
+                    ) : (
+                      <div className="h-full rounded-lg border border-dashed border-border-primary/70 bg-surface-secondary/30" />
+                    )}
+                    {savingTaskId === task.id && (
+                      <div className="absolute inset-x-3 bottom-3 rounded-lg border border-interactive/30 bg-surface-primary px-2 py-1 text-center text-[11px] text-interactive">
+                        正在保存流程调整...
+                      </div>
+                    )}
+                  </div>
+                )
+              }) : (
+                <div className="min-h-[140px] p-3 text-sm text-text-muted">暂无可展示流程。</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      )}
+      {editingTask && (
+        <div className="mt-3 rounded-lg border border-border-primary bg-surface-secondary p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-text-primary">调整交接约束</div>
+              <div className="mt-0.5 text-xs text-text-muted">{editingTask.name}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingTask(null)}
+              className="rounded-lg border border-border-primary px-2 py-1 text-xs text-text-muted"
+            >
+              关闭
+            </button>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <label className="text-xs text-text-muted">
+              逻辑关系
+              <select
+                value={draftRelation}
+                onChange={(event) => setDraftRelation(event.target.value as TaskFlowRelation)}
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              >
+                {TASK_FLOW_RELATION_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-text-muted">
+              依赖节点
+              <input
+                value={draftDependsOn}
+                onChange={(event) => setDraftDependsOn(event.target.value)}
+                placeholder="#12, #13 或节点名称"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              并行组
+              <input
+                value={draftParallelGroup}
+                onChange={(event) => setDraftParallelGroup(event.target.value)}
+                placeholder="例如：竞品与评论并行"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              优化目标
+              <input
+                value={draftOptimizationGoal}
+                onChange={(event) => setDraftOptimizationGoal(event.target.value)}
+                placeholder="例如：提速、提质、控风险、降成本"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              关系依据
+              <input
+                value={draftRelationReason}
+                onChange={(event) => setDraftRelationReason(event.target.value)}
+                placeholder="说明为什么这样安排更好"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              触发条件
+              <input
+                value={draftCondition}
+                onChange={(event) => setDraftCondition(event.target.value)}
+                placeholder="例如：样本通过核验后"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              汇合规则
+              <input
+                value={draftJoinPolicy}
+                onChange={(event) => setDraftJoinPolicy(event.target.value)}
+                placeholder="例如：全部上游验收通过"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              返工节点
+              <input
+                value={draftReworkTarget}
+                onChange={(event) => setDraftReworkTarget(event.target.value)}
+                placeholder="例如：#12"
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              上游输入
+              <input
+                value={draftUpstream}
+                onChange={(event) => setDraftUpstream(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              下游接收方
+              <input
+                value={draftDownstream}
+                onChange={(event) => setDraftDownstream(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
+              输出格式
+              <input
+                value={draftOutputFormat}
+                onChange={(event) => setDraftOutputFormat(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border-primary bg-surface-primary px-2 py-1.5 text-sm text-text-primary"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setSavingTaskId(editingTask.id)
+                void onUpdateFlow(editingTask, {
+                  upstream: draftUpstream,
+                  downstream: draftDownstream,
+                  outputFormat: draftOutputFormat,
+                  relation: draftRelation,
+                  dependsOn: draftDependsOn,
+                  parallelGroup: draftParallelGroup,
+                  optimizationGoal: draftOptimizationGoal,
+                  relationReason: draftRelationReason,
+                  condition: draftCondition,
+                  joinPolicy: draftJoinPolicy,
+                  reworkTarget: draftReworkTarget,
+                }).then(() => setEditingTask(null)).finally(() => setSavingTaskId(null))
+              }}
+              className="rounded-lg bg-interactive px-3 py-1.5 text-sm text-text-invert"
+            >
+              保存交接
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ProgressBar({ run }: { run: TaskRun }): React.JSX.Element {
@@ -479,7 +1536,14 @@ function CreateTaskForm({ workers, onCreated, roomId }: { workers: Worker[] | nu
   )
 }
 
-export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; autonomyMode: 'semi' }): React.JSX.Element {
+interface TasksPanelProps {
+  roomId?: number | null
+  autonomyMode: 'semi'
+  initialView?: TaskViewMode
+  embedded?: boolean
+}
+
+export function TasksPanel({ roomId, autonomyMode, initialView = 'kanban', embedded = false }: TasksPanelProps): React.JSX.Element {
   useTick()
   const { semi, guard, requestSemiMode, showLockModal, closeLockModal } = useAutonomyControlGate(autonomyMode)
   const [containerRef, containerWidth] = useContainerWidth<HTMLDivElement>()
@@ -489,16 +1553,24 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
   const [pendingRuns, setPendingRuns] = useState<Set<number>>(new Set())
   const [consoleTaskId, setConsoleTaskId] = useState<number | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
-  const [viewMode, setViewMode] = useState<TaskViewMode>('kanban')
+  const [viewMode, setViewMode] = useState<TaskViewMode>(initialView)
   const { data: tasks, refresh, error: tasksError, isLoading } = usePolling(() => api.tasks.list(roomId ?? undefined), 30000)
   const { data: runningRuns, refresh: refreshRuns } = usePolling(
     () => api.runs.list(20, { status: 'running' }),
     30000
   )
+  const { data: roomCycles, refresh: refreshRoomCycles } = usePolling(
+    () => roomId ? api.cycles.listByRoom(roomId, 80) : Promise.resolve([]),
+    15000
+  )
   const { data: workers } = usePolling(() => roomId ? api.workers.listForRoom(roomId) : Promise.resolve([]), 60000)
   const { data: room } = usePolling(() => roomId ? api.rooms.get(roomId).catch(() => null) : Promise.resolve(null), 60000)
   const taskEvent = useWebSocket('tasks')
   const runsEvent = useWebSocket('runs')
+
+  useEffect(() => {
+    if (embedded) setViewMode(initialView)
+  }, [embedded, initialView])
 
   useEffect(() => {
     if (taskEvent) refresh()
@@ -507,8 +1579,9 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
   useEffect(() => {
     if (!runsEvent) return
     refreshRuns()
+    refreshRoomCycles()
     refresh()
-  }, [refresh, refreshRuns, runsEvent])
+  }, [refresh, refreshRoomCycles, refreshRuns, runsEvent])
 
   function updateFilter(next: StatusFilter): void {
     persistedFilter = next
@@ -520,8 +1593,8 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
   }, [workers, room?.queenWorkerId])
 
   const workerMap = new Map<number, Worker>()
-  if (assignableWorkers.length > 0) {
-    for (const w of assignableWorkers) workerMap.set(w.id, w)
+  if ((workers ?? []).length > 0) {
+    for (const w of workers ?? []) workerMap.set(w.id, w)
   }
 
   const runningByTaskId = new Map<number, TaskRun>()
@@ -610,6 +1683,19 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
     }
   }
 
+  async function updateTaskFlow(task: Task, patch: TaskFlowPatch): Promise<void> {
+    setActionError(null)
+    try {
+      await api.tasks.update(task.id, {
+        description: upsertTaskFlowDescription(task, patch)
+      })
+      refresh()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '调整协作流程失败')
+      throw err
+    }
+  }
+
   if (isLoading && !tasks) {
     return <div className="p-4 flex-1 flex items-center justify-center text-base text-text-muted">加载中...</div>
   }
@@ -624,12 +1710,13 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
     completed: tasks.filter((t) => t.status === 'completed').length
   }
   const isFiltering = filter !== 'all'
-  const filteredTasks = filter === 'all' ? tasks : tasks.filter(t => t.status === filter)
+  const filteredTasks = embedded || filter === 'all' ? tasks : tasks.filter(t => t.status === filter)
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={`flex flex-col h-full ${embedded ? 'rounded-lg border border-border-primary bg-surface-primary overflow-hidden' : ''}`}>
+      {!embedded && (
       <div className="px-3 py-1.5 border-b border-border-primary flex items-center gap-2 flex-wrap">
-        <h2 className="text-base font-semibold text-text-primary">龙门镖局</h2>
+        <h2 className="text-base font-semibold text-text-primary">帮主任务台</h2>
         <span className="text-xs text-text-muted">{tasks.length} 张镖单</span>
         <button
           onClick={() => guard(() => setShowCreateForm(!showCreateForm))}
@@ -639,7 +1726,8 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
         </button>
         <div className="ml-auto inline-flex gap-1 rounded-lg bg-surface-tertiary p-0.5">
           {([
-            ['kanban', '镖局看板'],
+            ['kanban', '任务看板'],
+            ['flow', '协作流程'],
             ['gantt', '甘特图'],
             ['table', '表格'],
           ] as Array<[TaskViewMode, string]>).map(([mode, label]) => (
@@ -653,8 +1741,9 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
           ))}
         </div>
       </div>
+      )}
 
-      {semi && showCreateForm && (
+      {!embedded && semi && showCreateForm && (
         <CreateTaskForm
           workers={assignableWorkers}
           onCreated={() => { refresh(); setShowCreateForm(false) }}
@@ -662,6 +1751,7 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
         />
       )}
 
+      {!embedded && (
       <div className="px-3 py-2 border-b border-border-primary">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="text-xs font-semibold text-text-muted">筛选</div>
@@ -717,6 +1807,7 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
           </button>
         </div>
       </div>
+      )}
 
       {tasksError && (
         <div className="px-3 py-2 text-sm text-status-warning bg-status-warning-bg">
@@ -732,7 +1823,7 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
       <div ref={containerRef} className="flex-1 overflow-y-auto">
       {filteredTasks.length === 0 ? (
         <div className="p-4 text-center text-sm text-text-muted">
-          {filter !== 'all' ? (
+          {!embedded && filter !== 'all' ? (
             <>
               没有匹配筛选条件的镖单。{' '}
               <button
@@ -748,6 +1839,16 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
             '暂无镖单。镖单会由天机阁和弟子创建。'
           )}
         </div>
+      ) : viewMode === 'flow' ? (
+        <SwimlaneFlowView
+          tasks={filteredTasks}
+          workers={assignableWorkers}
+          workerMap={workerMap}
+          runningByTaskId={runningByTaskId}
+          onAssignWorker={assignWorker}
+          onUpdateFlow={updateTaskFlow}
+          onFlowRepaired={refresh}
+        />
       ) : viewMode === 'table' ? (
         <div className="p-3 overflow-x-auto">
           <table className="w-full min-w-[900px] text-sm border-separate border-spacing-y-2">
@@ -782,30 +1883,12 @@ export function TasksPanel({ roomId, autonomyMode }: { roomId?: number | null; a
           </table>
         </div>
       ) : viewMode === 'gantt' ? (
-        <div className="p-3 space-y-2">
-          {filteredTasks.map((task, index) => {
-            const run = runningByTaskId.get(task.id)
-            const worker = task.workerId != null ? workerMap.get(task.workerId) : undefined
-            const progress = run?.progress != null ? Math.round(run.progress * 100) : task.status === 'completed' ? 100 : task.status === 'paused' ? 20 : 45
-            return (
-              <div key={task.id} className="grid grid-cols-[160px_1fr] gap-3 items-center bg-surface-secondary rounded-lg p-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-text-primary truncate">{task.name}</div>
-                  <div className="text-xs text-text-muted truncate">{worker?.name ?? '未分派'} · {taskEta(task)}</div>
-                </div>
-                <div className="h-8 rounded-lg bg-surface-tertiary overflow-hidden relative">
-                  <div
-                    className={`h-full ${task.status === 'paused' ? 'bg-status-warning-bg' : task.status === 'completed' ? 'bg-status-success-bg' : 'bg-interactive-bg'}`}
-                    style={{ width: `${Math.max(12, progress)}%`, marginLeft: `${(index % 4) * 4}%` }}
-                  />
-                  <div className="absolute inset-0 flex items-center px-3 text-xs text-text-secondary">
-                    {statusLabel(task.status)} · {taskProgress(task, run)}
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <HeartbeatGanttView
+          tasks={filteredTasks}
+          workerMap={workerMap}
+          runningByTaskId={runningByTaskId}
+          cycles={roomCycles ?? []}
+        />
       ) : (
         <div className={`grid gap-3 p-3 ${wide ? 'grid-cols-3' : 'grid-cols-1'}`}>
           {(['active', 'paused', 'completed'] as const).map((columnStatus) => {

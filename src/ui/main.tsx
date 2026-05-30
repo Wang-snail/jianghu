@@ -5,13 +5,13 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { cleanupLegacyPwaArtifacts } from './lib/pwaCleanup'
 import './styles/globals.css'
 
-const PWA_CLEANUP_RELOAD_KEY = 'zuzu:pwa-cleanup-reload'
+const PWA_CLEANUP_RELOAD_KEY = 'jianghu:pwa-cleanup-reload'
 
 function redirectMisroutedGoogleCallback(): boolean {
   if (location.pathname !== '/api/auth/google/callback') return false
 
   const configuredOrigin = (import.meta.env.VITE_CLOUD_CONTROL_ORIGIN || '').trim()
-  const targetOrigin = configuredOrigin || (location.hostname === 'app.zuzu.io' ? 'https://zuzu.io' : '')
+  const targetOrigin = configuredOrigin || ''
   if (!targetOrigin) return false
 
   try {

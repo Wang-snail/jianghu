@@ -29,6 +29,22 @@ describe('Goal routes', () => {
       const res = await request(ctx, 'POST', `/api/rooms/${roomId}/goals`, {})
       expect(res.status).toBe(400)
     })
+
+    it('rejects complex work assigned to a generic auto executor', async () => {
+      const worker = ctx.db.prepare(`
+        INSERT INTO workers (name, role, system_prompt, room_id)
+        VALUES (?, ?, ?, ?)
+      `).run('执行弟子-1', 'executor', '通用执行弟子。', roomId)
+
+      const res = await request(ctx, 'POST', `/api/rooms/${roomId}/goals`, {
+        description: '完成空调市场机会真实分析，覆盖行业规模、竞品、品牌和风险',
+        assignedWorkerId: Number(worker.lastInsertRowid),
+        expectedCompletedAt: '2026-05-26 10:00:00',
+      })
+
+      expect(res.status).toBe(400)
+      expect((res.body as any).error).toContain('专人专职')
+    })
   })
 
   describe('GET /api/rooms/:roomId/goals', () => {
@@ -107,6 +123,24 @@ describe('Goal routes', () => {
       expect(res.status).toBe(200)
       expect((res.body as any).status).toBe('completed')
       expect((res.body as any).progress).toBe(1)
+    })
+
+    it('rejects reassigning a complex goal to a generic auto executor', async () => {
+      const createRes = await request(ctx, 'POST', `/api/rooms/${roomId}/goals`, {
+        description: '拆解除湿机竞品数据、用户痛点和认证要求'
+      })
+      const id = (createRes.body as any).id
+      const worker = ctx.db.prepare(`
+        INSERT INTO workers (name, role, system_prompt, room_id)
+        VALUES (?, ?, ?, ?)
+      `).run('执行弟子-2', 'executor', '通用执行弟子。', roomId)
+
+      const res = await request(ctx, 'PATCH', `/api/goals/${id}`, {
+        assignedWorkerId: Number(worker.lastInsertRowid),
+      })
+
+      expect(res.status).toBe(400)
+      expect((res.body as any).error).toContain('专人专职')
     })
   })
 

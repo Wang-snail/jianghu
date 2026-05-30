@@ -8,6 +8,8 @@ import type {
   QuorumDecision,
   Skill,
   Escalation,
+  TrainingAdjustment,
+  TrainingAdjustmentStatus,
   ClerkMessage,
   SelfModAuditEntry,
   Wallet, WalletTransaction, RevenueSummary, OnChainBalance, CryptoPricing,
@@ -162,6 +164,15 @@ interface ContactStatusResponse {
   telegram: ContactTelegramStatus
 }
 
+export interface RoomResultFile {
+  name: string
+  title: string
+  path: string
+  updatedAt: string
+  size: number
+  preview: string
+}
+
 export const api = {
   // ─── Tasks ───────────────────────────────────────────────
   tasks: {
@@ -261,10 +272,10 @@ export const api = {
       if (directCode) {
         const directInviteUrl = typeof direct.inviteUrl === 'string' && direct.inviteUrl.trim()
           ? direct.inviteUrl
-          : `https://zuzu.io/invite/${encodeURIComponent(directCode)}`
+          : `https://github.com/Wang-snail/jianghu`
         const directShareUrl = typeof direct.shareUrl === 'string' && direct.shareUrl.trim()
           ? direct.shareUrl
-          : `https://zuzu.io/share/v2/${encodeURIComponent(directCode)}`
+          : `https://github.com/Wang-snail/jianghu`
         return { code: directCode, inviteUrl: directInviteUrl, shareUrl: directShareUrl }
       }
 
@@ -274,8 +285,8 @@ export const api = {
       const legacyCode = (legacy.value ?? '').trim()
       return {
         code: legacyCode,
-        inviteUrl: legacyCode ? `https://zuzu.io/invite/${encodeURIComponent(legacyCode)}` : '',
-        shareUrl: legacyCode ? `https://zuzu.io/share/v2/${encodeURIComponent(legacyCode)}` : ''
+        inviteUrl: legacyCode ? `https://github.com/Wang-snail/jianghu` : '',
+        shareUrl: legacyCode ? `https://github.com/Wang-snail/jianghu` : ''
       }
     },
     get: (key: string) =>
@@ -283,6 +294,8 @@ export const api = {
         .then(r => r.value),
     set: (key: string, value: string) =>
       request<{ key: string; value: string }>('PUT', `/api/settings/${key}`, { value }),
+    testCustomModelUrl: (url: string) =>
+      request<{ ok: true; url: string; status: number | null; message: string }>('POST', '/api/settings/custom-model/test-url', { url }),
   },
 
   auth: {
@@ -405,6 +418,8 @@ export const api = {
         today: { inputTokens: number; outputTokens: number; cycles: number }
         isApiModel: boolean
       }>('GET', `/api/rooms/${id}/usage`),
+    resultFiles: (id: number) =>
+      request<RoomResultFile[]>('GET', `/api/rooms/${id}/result-files`),
   },
 
   // ─── Goals ───────────────────────────────────────────────
@@ -413,8 +428,8 @@ export const api = {
       request<Goal[]>('GET', `/api/rooms/${roomId}/goals${qs({ status })}`),
     get: (id: number) =>
       request<Goal>('GET', `/api/goals/${id}`),
-    create: (roomId: number, description: string, assignedWorkerId?: number) =>
-      request<Goal>('POST', `/api/rooms/${roomId}/goals`, { description, assignedWorkerId }),
+    create: (roomId: number, description: string, assignedWorkerId?: number, parentGoalId?: number, expectedCompletedAt?: string | null) =>
+      request<Goal>('POST', `/api/rooms/${roomId}/goals`, { description, assignedWorkerId, parentGoalId, expectedCompletedAt }),
     update: (id: number, body: Record<string, unknown>) =>
       request<Goal>('PATCH', `/api/goals/${id}`, body),
     delete: (id: number) =>
@@ -423,6 +438,16 @@ export const api = {
       request<GoalUpdate>('POST', `/api/goals/${id}/updates`, { observation }),
     getUpdates: (id: number, limit?: number) =>
       request<GoalUpdate[]>('GET', `/api/goals/${id}/updates${qs({ limit })}`),
+    getResultSummary: (id: number) =>
+      request<{
+        goalId: number
+        status: string
+        progress: number
+        completionClear: boolean
+        latestBasis: string | null
+        hasManualOnlyUpdates: boolean
+        resultFiles: RoomResultFile[]
+      }>('GET', `/api/goals/${id}/result-summary`),
   },
 
   // ─── Decisions ───────────────────────────────────────────
@@ -455,10 +480,24 @@ export const api = {
   escalations: {
     list: (roomId: number, toAgentId?: number, status?: string) =>
       request<Escalation[]>('GET', `/api/rooms/${roomId}/escalations${qs({ toAgentId, status })}`),
-    create: (roomId: number, fromAgentId: number | null, question: string, toAgentId?: number) =>
-      request<Escalation>('POST', `/api/rooms/${roomId}/escalations`, { fromAgentId, question, toAgentId }),
+    create: (roomId: number, fromAgentId: number | null, question: string, toAgentId?: number, immediate?: boolean) =>
+      request<Escalation>('POST', `/api/rooms/${roomId}/escalations`, { fromAgentId, question, toAgentId, immediate }),
     resolve: (id: number, answer: string) =>
       request<Escalation>('POST', `/api/escalations/${id}/resolve`, { answer }),
+  },
+
+  // ─── Training Camp ───────────────────────────────────────
+  training: {
+    adjustments: (roomId: number) =>
+      request<TrainingAdjustment[]>('GET', `/api/rooms/${roomId}/training-adjustments`),
+    adjust: (roomId: number, escalationId: number, body: {
+      workerId?: number | null
+      status: TrainingAdjustmentStatus
+      progress: number
+      note?: string | null
+      config?: Record<string, unknown> | string | null
+    }) =>
+      request<TrainingAdjustment>('POST', `/api/rooms/${roomId}/training-adjustments/${escalationId}`, body),
   },
 
   // ─── Clerk ──────────────────────────────────────────────

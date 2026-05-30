@@ -10,7 +10,7 @@ import { storageGet, storageSet } from '../lib/storage'
 import { formatRelativeTime } from '../utils/time'
 import { Select } from './Select'
 import { AutoModeLockModal, modeAwareButtonClass, useAutonomyControlGate } from './AutonomyControlGate'
-import type { Escalation, Worker, RoomMessage } from '@shared/types'
+import type { Escalation, Worker, RoomMessage, Room } from '@shared/types'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-status-warning-bg border-amber-200',
@@ -21,12 +21,14 @@ const STATUS_COLORS: Record<string, string> = {
 interface MessagesPanelProps {
   roomId: number | null
   autonomyMode: 'semi'
+  mode?: 'all' | 'inter-room'
+  title?: string
 }
 
-export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): React.JSX.Element {
+export function MessagesPanel({ roomId, autonomyMode, mode = 'all', title = '飞鸽传书' }: MessagesPanelProps): React.JSX.Element {
   const { semi, guard, showLockModal, closeLockModal } = useAutonomyControlGate(autonomyMode)
-  const [viewSection, setViewSection] = useState<'escalations' | 'rooms'>('escalations')
-  const [collapsed, setCollapsed] = useState(() => storageGet('zuzu_messages_collapsed') === 'true')
+  const [viewSection, setViewSection] = useState<'escalations' | 'rooms'>(mode === 'inter-room' ? 'rooms' : 'escalations')
+  const [collapsed, setCollapsed] = useState(() => storageGet('jianghu_messages_collapsed') === 'true')
 
   const { data: escalations, refresh } = usePolling<Escalation[]>(
     () => roomId ? api.escalations.list(roomId) : Promise.resolve([]),
@@ -37,6 +39,11 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
     30000
   )
   const { data: workers } = usePolling<Worker[]>(() => roomId ? api.workers.listForRoom(roomId) : Promise.resolve([]), 60000)
+  const { data: rooms } = usePolling<Room[]>(() => api.rooms.list(), 60000)
+
+  useEffect(() => {
+    if (mode === 'inter-room') setViewSection('rooms')
+  }, [mode])
 
   useEffect(() => {
     if (!roomId) return
@@ -64,6 +71,9 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
   const [createError, setCreateError] = useState<string | null>(null)
   const [replyingToMsg, setReplyingToMsg] = useState<number | null>(null)
   const [roomMsgReplyText, setRoomMsgReplyText] = useState('')
+  const [toRoomId, setToRoomId] = useState('')
+  const [roomMsgSubject, setRoomMsgSubject] = useState('')
+  const [roomMsgBody, setRoomMsgBody] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new messages
@@ -120,6 +130,26 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
     refreshMessages()
   }
 
+  async function handleCreateRoomMessage(): Promise<void> {
+    if (!roomId || !toRoomId.trim() || !roomMsgBody.trim()) return
+    setCreateError(null)
+    try {
+      await api.roomMessages.create(
+        roomId,
+        toRoomId.trim(),
+        roomMsgBody.trim(),
+        roomMsgSubject.trim() || '帮派传书'
+      )
+      setToRoomId('')
+      setRoomMsgSubject('')
+      setRoomMsgBody('')
+      setShowCreateForm(false)
+      refreshMessages()
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : '发送帮派间传书失败')
+    }
+  }
+
   async function handleMarkAllRead(): Promise<void> {
     if (!roomId) return
     if (viewSection === 'escalations') {
@@ -140,7 +170,8 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-2 border-b border-border-primary flex items-center gap-2 flex-wrap">
-        <h2 className="text-base font-semibold text-text-primary mr-1">飞鸽传书</h2>
+        <h2 className="text-base font-semibold text-text-primary mr-1">{title}</h2>
+        {mode !== 'inter-room' && (
         <div className="flex gap-1 bg-interactive-bg rounded-lg p-0.5">
           <button
             onClick={() => setViewSection('escalations')}
@@ -163,6 +194,7 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
             帮派间传书{unreadMessages.length > 0 ? ` (${unreadMessages.length})` : ''}
           </button>
         </div>
+        )}
         {((viewSection === 'escalations' && pending.length > 0) || (viewSection === 'rooms' && unreadMessages.length > 0)) && (
           <button
             onClick={handleMarkAllRead}
@@ -172,23 +204,23 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
           </button>
         )}
         <button
-          onClick={() => setCollapsed(c => { const next = !c; storageSet('zuzu_messages_collapsed', String(next)); return next })}
+          onClick={() => setCollapsed(c => { const next = !c; storageSet('jianghu_messages_collapsed', String(next)); return next })}
           className="text-xs px-2.5 py-1.5 rounded-lg bg-interactive text-text-invert hover:bg-interactive-hover"
         >
           {collapsed ? '全部展开' : '全部收起'}
         </button>
-        {roomId && viewSection === 'escalations' && (
+        {roomId && (
           <button
             onClick={() => guard(() => setShowCreateForm(!showCreateForm))}
             className={`text-xs px-2.5 py-1.5 rounded-lg ${modeAwareButtonClass(semi, 'bg-interactive text-text-invert hover:bg-interactive-hover')}`}
           >
-            {showCreateForm ? '取消' : '+ 新建'}
+            {showCreateForm ? '取消' : viewSection === 'rooms' ? '+ 帮派传书' : '+ 新建'}
           </button>
         )}
       </div>
 
       {/* Create message form (semi-mode only) */}
-      {semi && showCreateForm && roomId && (
+      {semi && showCreateForm && roomId && viewSection === 'escalations' && (
         <div className="p-4 border-b-2 border-border-primary bg-surface-secondary space-y-2">
           <Select
             value={String(toAgentId)}
@@ -223,11 +255,54 @@ export function MessagesPanel({ roomId, autonomyMode }: MessagesPanelProps): Rea
           </div>
         </div>
       )}
+      {semi && showCreateForm && roomId && viewSection === 'rooms' && (
+        <div className="p-4 border-b-2 border-border-primary bg-surface-secondary space-y-2">
+          <div className="text-sm font-semibold text-text-primary">帮派间传书</div>
+          <div className="grid gap-2 md:grid-cols-[240px_1fr]">
+            <Select
+              value={toRoomId}
+              onChange={setToRoomId}
+              placeholder="选择目标帮派"
+              options={[
+                { value: '', label: '选择目标帮派' },
+                ...(rooms ?? [])
+                  .filter(room => room.id !== roomId)
+                  .map(room => ({ value: `local:${room.id}`, label: room.name }))
+              ]}
+            />
+            <input
+              value={roomMsgSubject}
+              onChange={(event) => setRoomMsgSubject(event.target.value)}
+              placeholder="主题（可选）"
+              className="w-full px-2.5 py-1.5 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary"
+            />
+          </div>
+          <textarea
+            value={roomMsgBody}
+            onChange={(event) => { setRoomMsgBody(event.target.value); setCreateError(null) }}
+            rows={4}
+            placeholder="写给其他帮派的信息、请求、交接材料或协作说明..."
+            className="w-full px-2.5 py-1.5 text-sm border border-border-primary rounded-lg focus:outline-none focus:border-text-muted bg-surface-primary resize-y"
+            autoFocus
+          />
+          <div className="flex items-center justify-between">
+            {createError && <span className="text-sm text-status-error truncate">{createError}</span>}
+            <div className="flex-1" />
+            <button
+              onClick={handleCreateRoomMessage}
+              disabled={!toRoomId.trim() || !roomMsgBody.trim()}
+              className="text-sm bg-interactive text-text-invert px-4 py-2 rounded-lg hover:bg-interactive-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              发送传书
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto">
         {!roomId ? (
-          <div className="p-4 text-sm text-text-muted">选择一个帮派以查看飞鸽传书。</div>
+          <div className="p-4 text-sm text-text-muted">选择一个帮派以查看{mode === 'inter-room' ? '龙门镖局传书' : '飞鸽传书'}。</div>
         ) : viewSection === 'escalations' ? (
           (escalations ?? []).length === 0 && escalations ? (
             <div className="p-4 text-sm text-text-muted">

@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import type Database from 'better-sqlite3'
 import { executeAgent } from '../shared/agent-executor'
 import * as queries from '../shared/db-queries'
-import { getModelProvider } from '../shared/model-provider'
+import { getGlobalModel, getModelProvider } from '../shared/model-provider'
 import { probeProviderConnected, probeProviderInstalled } from './provider-cli'
 import type { ToolDef } from '../shared/queen-tools'
 import {
@@ -113,21 +113,23 @@ export function getClerkApiAuth(db: Database.Database): { openai: ClerkApiAuthSt
 
 /**
  * Detect the best available provider and return a model string, or null if nothing usable.
- * Priority: MiMo API key → claude CLI → codex CLI → openai API key → anthropic API key.
+ * Priority: MiMo API key → connected Codex CLI → connected Claude CLI → API keys.
  */
 export function autoConfigureClerkModel(db: Database.Database): string | null {
   const apiAuth = getClerkApiAuth(db)
   if (apiAuth.mimo.ready) return CLERK_FALLBACK_MIMO_MODEL
-  if (probeProviderInstalled('claude').installed) return DEFAULT_CLERK_MODEL
   const codex = probeProviderInstalled('codex')
   if (codex.installed && probeProviderConnected('codex') === true) return CLERK_FALLBACK_SUBSCRIPTION_MODEL
+  const claude = probeProviderInstalled('claude')
+  if (claude.installed && probeProviderConnected('claude') === true) return 'claude'
+  if (apiAuth.gemini.ready) return 'gemini:gemini-2.5-flash'
   if (apiAuth.openai.ready) return CLERK_FALLBACK_OPENAI_MODEL
   if (apiAuth.anthropic.ready) return CLERK_FALLBACK_ANTHROPIC_MODEL
   return null
 }
 
 export function getClerkPreferredModel(db: Database.Database, fallbackModel: string = DEFAULT_CLERK_MODEL): string {
-  return queries.getSetting(db, 'clerk_model') || fallbackModel
+  return getGlobalModel(db, fallbackModel) || fallbackModel
 }
 
 export function resolveClerkApiKey(db: Database.Database, model: string | null | undefined): string | undefined {
@@ -313,33 +315,28 @@ function buildClerkModelPlan(preferredModel: string): string[] {
   if (provider === 'claude_subscription') {
     uniquePush(plan, CLERK_FALLBACK_MIMO_MODEL)
     uniquePush(plan, CLERK_FALLBACK_SUBSCRIPTION_MODEL)
-    uniquePush(plan, CLERK_FALLBACK_OPENAI_MODEL)
     uniquePush(plan, CLERK_FALLBACK_ANTHROPIC_MODEL)
   } else if (provider === 'codex_subscription') {
     uniquePush(plan, CLERK_FALLBACK_MIMO_MODEL)
-    uniquePush(plan, CLERK_FALLBACK_OPENAI_MODEL)
-    uniquePush(plan, DEFAULT_CLERK_MODEL)
+    uniquePush(plan, 'claude')
     uniquePush(plan, CLERK_FALLBACK_ANTHROPIC_MODEL)
   } else if (provider === 'openai_api') {
     uniquePush(plan, CLERK_FALLBACK_MIMO_MODEL)
     uniquePush(plan, CLERK_FALLBACK_SUBSCRIPTION_MODEL)
-    uniquePush(plan, DEFAULT_CLERK_MODEL)
+    uniquePush(plan, 'claude')
     uniquePush(plan, CLERK_FALLBACK_ANTHROPIC_MODEL)
   } else if (provider === 'anthropic_api') {
     uniquePush(plan, CLERK_FALLBACK_MIMO_MODEL)
     uniquePush(plan, CLERK_FALLBACK_SUBSCRIPTION_MODEL)
-    uniquePush(plan, CLERK_FALLBACK_OPENAI_MODEL)
-    uniquePush(plan, DEFAULT_CLERK_MODEL)
+    uniquePush(plan, 'claude')
   } else if (provider === 'gemini_api') {
     uniquePush(plan, CLERK_FALLBACK_MIMO_MODEL)
     uniquePush(plan, CLERK_FALLBACK_SUBSCRIPTION_MODEL)
-    uniquePush(plan, CLERK_FALLBACK_OPENAI_MODEL)
-    uniquePush(plan, DEFAULT_CLERK_MODEL)
+    uniquePush(plan, 'claude')
     uniquePush(plan, CLERK_FALLBACK_ANTHROPIC_MODEL)
   } else if (provider === 'mimo_api') {
     uniquePush(plan, CLERK_FALLBACK_SUBSCRIPTION_MODEL)
-    uniquePush(plan, DEFAULT_CLERK_MODEL)
-    uniquePush(plan, CLERK_FALLBACK_OPENAI_MODEL)
+    uniquePush(plan, 'claude')
     uniquePush(plan, CLERK_FALLBACK_ANTHROPIC_MODEL)
   }
 
@@ -406,6 +403,21 @@ function isProviderUnavailableFailure(message: string): boolean {
     || lower.includes('failed to spawn')
     || lower.includes('enoent')
     || (lower.includes('missing') && lower.includes('api key'))
+    || (lower.includes('invalid') && lower.includes('api key'))
+    || (lower.includes('incorrect') && lower.includes('api key'))
+    || (lower.includes('unauthorized') && lower.includes('api key'))
+    || (lower.includes('401') && lower.includes('api key'))
+}
+
+export function isSensitiveProviderError(message: string | null | undefined): boolean {
+  const lower = (message ?? '').toLowerCase()
+  return lower.includes('api key')
+    || lower.includes('external api')
+    || lower.includes('bearer ')
+    || lower.includes('authorization')
+    || lower.includes('unauthorized')
+    || lower.includes('platform.openai.com')
+    || lower.includes('sk-')
 }
 
 export async function executeClerkWithFallback(options: ClerkExecutionOptions): Promise<ClerkExecutionOutcome> {

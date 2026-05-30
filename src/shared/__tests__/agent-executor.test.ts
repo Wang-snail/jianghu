@@ -155,7 +155,8 @@ describe('executeAgent', () => {
       const [bin, args] = mockSpawn.mock.calls[0]
       const expectedBin = process.platform === 'win32' ? 'codex.cmd' : 'codex'
       expect(bin).toBe(expectedBin)
-      expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'Hello'])
+      expect(args.slice(0, 3)).toEqual(['exec', '--json', '--skip-git-repo-check'])
+      expect(args.at(-1)).toBe('Hello')
       expect(result.output).toBe('Hello from Codex')
       expect(result.exitCode).toBe(0)
       expect(result.sessionId).toBe('thread-123')
@@ -201,6 +202,90 @@ describe('executeAgent', () => {
       expect(textEntries).toHaveLength(2)
     })
 
+    it('runs local fallback when a Codex company tool call has no successful result', async () => {
+      setupMockCodexProcess([
+        JSON.stringify({ type: 'thread.started', thread_id: 'thread-fallback' }),
+        JSON.stringify({
+          type: 'item.completed',
+          item: {
+            type: 'mcp_tool_call',
+            server: 'company',
+            tool: 'company_save_wip',
+            arguments: { status: 'done' },
+            result: { content: [{ type: 'text', text: 'user cancelled MCP tool call' }] },
+            status: 'failed'
+          }
+        }),
+        JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Saved progress.' } }),
+      ])
+
+      const onToolCall = vi.fn().mockResolvedValue('WIP saved locally')
+      const logEntries: Array<{ entryType: string; content: string }> = []
+      const result = await executeAgent({
+        model: 'codex',
+        prompt: 'Save progress',
+        onToolCall,
+        onConsoleLog: (entry) => logEntries.push(entry),
+      })
+
+      expect(onToolCall).toHaveBeenCalledOnce()
+      expect(onToolCall).toHaveBeenCalledWith('company_save_wip', { status: 'done' })
+      expect(result.output).toContain('Saved progress.')
+      expect(result.output).toContain('[local fallback] WIP saved locally')
+      expect(logEntries.some(entry => entry.entryType === 'tool_result' && entry.content.includes('[local fallback] WIP saved locally'))).toBe(true)
+    })
+
+    it('does not run local fallback when a Codex company tool call already succeeded', async () => {
+      setupMockCodexProcess([
+        JSON.stringify({
+          type: 'item.completed',
+          item: {
+            type: 'mcp_tool_call',
+            server: 'company',
+            tool: 'company_send_message',
+            arguments: { to: 'keeper', message: 'hello' },
+            result: { content: [{ type: 'text', text: 'Message sent to keeper (#7).' }] },
+            status: 'completed'
+          }
+        }),
+      ])
+
+      const onToolCall = vi.fn().mockResolvedValue('duplicate')
+      const result = await executeAgent({
+        model: 'codex',
+        prompt: 'Send message',
+        onToolCall,
+      })
+
+      expect(onToolCall).not.toHaveBeenCalled()
+      expect(result.output).toBe('Message sent to keeper (#7).')
+    })
+
+    it('does not run local fallback for non-company Codex tool calls', async () => {
+      setupMockCodexProcess([
+        JSON.stringify({
+          type: 'item.completed',
+          item: {
+            type: 'mcp_tool_call',
+            server: 'other',
+            tool: 'external_search',
+            arguments: { query: 'x' },
+            result: { content: [{ type: 'text', text: 'user cancelled MCP tool call' }] },
+            status: 'failed'
+          }
+        }),
+      ])
+
+      const onToolCall = vi.fn().mockResolvedValue('should not run')
+      await executeAgent({
+        model: 'codex',
+        prompt: 'Search',
+        onToolCall,
+      })
+
+      expect(onToolCall).not.toHaveBeenCalled()
+    })
+
     it('uses codex resume command and preserves resume session when no new thread event arrives', async () => {
       setupMockCodexProcess([
         JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Resumed response' } })
@@ -217,16 +302,14 @@ describe('executeAgent', () => {
       const [bin, args] = mockSpawn.mock.calls[0]
       const expectedBin = process.platform === 'win32' ? 'codex.cmd' : 'codex'
       expect(bin).toBe(expectedBin)
-      expect(args).toEqual([
-        'exec',
-        'resume',
-        '--model',
-        'gpt-5-codex',
-        '--json',
-        '--skip-git-repo-check',
-        'thread-existing',
-        'System instructions:\nBe concise\n\nUser request:\nContinue'
-      ])
+      expect(args[0]).toBe('exec')
+      expect(args).toContain('--model')
+      expect(args).toContain('gpt-5-codex')
+      expect(args).toContain('resume')
+      expect(args).toContain('--json')
+      expect(args).toContain('--skip-git-repo-check')
+      expect(args.at(-2)).toBe('thread-existing')
+      expect(args.at(-1)).toBe('System instructions:\nBe concise\n\nUser request:\nContinue')
       expect(result.output).toBe('Resumed response')
       expect(result.sessionId).toBe('thread-existing')
     })

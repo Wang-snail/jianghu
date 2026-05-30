@@ -57,6 +57,8 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
   const [customModelName, setCustomModelName] = useState('')
   const [customModelError, setCustomModelError] = useState<string | null>(null)
   const [customModelSuccess, setCustomModelSuccess] = useState<string | null>(null)
+  const [customModelLinkTesting, setCustomModelLinkTesting] = useState(false)
+  const [customModelLinkFeedback, setCustomModelLinkFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   const { theme, setTheme } = useTheme()
   const deploymentMode = APP_MODE === 'cloud' || serverStatus?.deploymentMode === 'cloud' ? 'cloud' : 'local'
@@ -100,13 +102,25 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
       setChatGptPlan(plan)
     }).catch(() => {})
 
-    api.settings.get('queen_model').then((v) => {
+    api.settings.get('global_model').then((v) => {
       setQueenModel(v || null)
     }).catch(() => setQueenModel(null))
 
     api.settings.get('telemetry_enabled').then((v) => {
       setTelemetryEnabled(v !== 'false')
     }).catch(() => setTelemetryEnabled(true))
+
+    api.settings.get('custom_model').then((v) => {
+      if (!v) return
+      try {
+        const parsed = JSON.parse(v) as Record<string, unknown>
+        if (typeof parsed.url === 'string') setCustomModelUrl(parsed.url)
+        if (typeof parsed.key === 'string') setCustomModelKey(parsed.key)
+        if (typeof parsed.model === 'string') setCustomModelName(parsed.model)
+      } catch {
+        // Ignore older malformed local settings.
+      }
+    }).catch(() => {})
 
     Promise.all([
       api.settings.get('discord_APP_ID').catch(() => ''),
@@ -131,7 +145,7 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
   }
 
   async function setQueenModelSetting(model: string): Promise<void> {
-    await api.settings.set('queen_model', model)
+    await api.settings.set('global_model', model)
     setQueenModel(model)
   }
 
@@ -149,6 +163,47 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
       setDiscordFeedback({ kind: 'error', text: error instanceof Error ? error.message : '保存 Discord 通讯凭据失败。' })
     } finally {
       setDiscordBusy(false)
+    }
+  }
+
+  async function testCustomModelLink(): Promise<void> {
+    const url = customModelUrl.trim()
+    if (!url) {
+      setCustomModelLinkFeedback({ kind: 'error', text: '请先填写 API 地址。' })
+      return
+    }
+
+    setCustomModelLinkTesting(true)
+    setCustomModelLinkFeedback(null)
+    try {
+      const result = await api.settings.testCustomModelUrl(url)
+      setCustomModelLinkFeedback({ kind: 'success', text: result.message || '链接可用。' })
+    } catch (error) {
+      setCustomModelLinkFeedback({
+        kind: 'error',
+        text: error instanceof Error ? error.message : '链接测试失败。'
+      })
+    } finally {
+      setCustomModelLinkTesting(false)
+    }
+  }
+
+  async function saveCustomModelConfig(): Promise<void> {
+    if (!customModelUrl || !customModelKey || !customModelName) {
+      setCustomModelError('请填写所有字段')
+      return
+    }
+    try {
+      await api.settings.set('custom_model', JSON.stringify({
+        url: customModelUrl.trim(),
+        key: customModelKey.trim(),
+        model: customModelName.trim()
+      }))
+      setCustomModelError(null)
+      setCustomModelSuccess('自定义模型配置已保存')
+      setTimeout(() => setCustomModelSuccess(null), 3000)
+    } catch (error) {
+      setCustomModelError(error instanceof Error ? error.message : '保存失败')
     }
   }
 
@@ -316,15 +371,15 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
               ))}
             </div>
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-tight">使用 Codex 时优化天机阁默认设置，Plus 和 Pro 有不同的速率限制</p>
+          <p className="text-xs text-text-muted mt-0.5 leading-tight">使用 OpenAI Codex OAuth 时优化天机阁默认设置，不需要在这里填写 OpenAI API key</p>
         </div>
         <div className="py-1.5">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-text-secondary">天机阁模型</span>
+            <span className="text-text-secondary">全局模型</span>
             <div className="flex rounded-lg overflow-hidden border border-border-primary">
               {([
                 ['claude', 'Claude'],
-                ['codex', 'Codex'],
+                ['codex', 'Codex OAuth'],
                 ['openai:gpt-4o-mini', 'OpenAI API'],
                 ['anthropic:claude-3-5-sonnet-latest', 'Claude API'],
                 ['mimo:MiMo-V2.5-Pro', 'MiMo Pro'],
@@ -345,7 +400,7 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
               ))}
             </div>
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-tight">新帮派默认的天机阁模型提供商。MiMo 可通过 MIMO_API_KEY 或本地凭据使用。</p>
+          <p className="text-xs text-text-muted mt-0.5 leading-tight">默认用于天机阁、帮主和弟子。单个角色只有明确单独设置时才覆盖全局模型。</p>
         </div>
 
         {/* 自定义模型配置 */}
@@ -365,13 +420,31 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
             <div className="space-y-2 pt-2 border-t border-border-secondary mt-2">
               <div className="space-y-1.5">
                 <label className="block text-xs text-text-secondary">API地址</label>
-                <input
-                  type="text"
-                  value={customModelUrl}
-                  onChange={(e) => setCustomModelUrl(e.target.value)}
-                  placeholder="https://api.example.com/v1"
-                  className="w-full px-2 py-1.5 text-xs border border-border-primary rounded bg-surface-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-interactive"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customModelUrl}
+                    onChange={(e) => {
+                      setCustomModelUrl(e.target.value)
+                      setCustomModelLinkFeedback(null)
+                    }}
+                    placeholder="https://api.example.com/v1"
+                    className="min-w-0 flex-1 px-2 py-1.5 text-xs border border-border-primary rounded bg-surface-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:border-interactive"
+                  />
+                  <button
+                    type="button"
+                    onClick={testCustomModelLink}
+                    disabled={!customModelUrl.trim() || customModelLinkTesting}
+                    className="shrink-0 px-3 py-1.5 text-xs bg-surface-primary border border-border-primary text-text-secondary rounded hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {customModelLinkTesting ? '测试中' : '测试链接'}
+                  </button>
+                </div>
+                {customModelLinkFeedback && (
+                  <p className={`text-xs ${customModelLinkFeedback.kind === 'success' ? 'text-status-success' : 'text-status-error'}`}>
+                    {customModelLinkFeedback.text}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="block text-xs text-text-secondary">API密钥</label>
@@ -394,28 +467,7 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
                 />
               </div>
               <button
-                onClick={async () => {
-                  if (!customModelUrl || !customModelKey || !customModelName) {
-                    setCustomModelError('请填写所有字段')
-                    return
-                  }
-                  try {
-                    await fetch(`${API_BASE}/api/settings/custom_model`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        url: customModelUrl,
-                        key: customModelKey,
-                        model: customModelName
-                      })
-                    })
-                    setCustomModelError(null)
-                    setCustomModelSuccess('自定义模型配置已保存')
-                    setTimeout(() => setCustomModelSuccess(null), 3000)
-                  } catch (error) {
-                    setCustomModelError(error instanceof Error ? error.message : '保存失败')
-                  }
-                }}
+                onClick={saveCustomModelConfig}
                 disabled={!customModelUrl || !customModelKey || !customModelName}
                 className="w-full px-3 py-1.5 text-xs bg-interactive text-text-invert rounded-lg hover:bg-interactive-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -510,11 +562,11 @@ export function SettingsPanel({ advancedMode, onAdvancedModeChange }: SettingsPa
             <div className="flex items-center gap-1">
               <input
                 type="number"
-                defaultValue={storageGet('zuzu_port') || '4700'}
+                defaultValue={storageGet('jianghu_port') || '4700'}
                 className="w-16 px-2 py-1 text-xs border border-border-primary rounded text-center font-mono bg-surface-primary text-text-primary"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    storageSet('zuzu_port', (e.target as HTMLInputElement).value)
+                    storageSet('jianghu_port', (e.target as HTMLInputElement).value)
                     clearToken()
                     location.reload()
                   }

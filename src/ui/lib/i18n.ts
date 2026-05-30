@@ -15,7 +15,7 @@ const translations: Record<string, string> = {
   'Tasks': '镖单',
   'Votes': '议事堂',
   'Messages': '飞鸽传书',
-  'Stations': '灵气资源',
+  'Stations': '历史资源',
   'Transactions': '钱庄',
   'Credentials': '访问凭证',
   'Help': '江湖说明',
@@ -53,7 +53,7 @@ const translations: Record<string, string> = {
   'Reset': '重置',
 
   // 房间相关
-  'Queen': '天机阁',
+  'Queen': '帮主',
   'Workers': '弟子',
   'Quorum': '议事堂',
   'Model': '模型',

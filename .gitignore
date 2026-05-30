@@ -31,6 +31,34 @@ coverage/
 # Local runtime workspaces
 .company-local-*/
 
+# Local research, generated gang outputs, and private work notes
+docs/DEHUMIDIFIER_MARKET_OPPORTUNITY.md
+docs/private/
+installers/
+AGENTS.md
+*_STABILITY_SUMMARY.md
+*_PROGRESS.md
+*_CLEANUP_REPORT.md
+*_TRANSLATION_REPORT.md
+*_STABILITY_REPORT.md
+IMPLEMENTATION_COMPLETE.md
+REFACTOR_PLAN.md
+TELEGRAM_*.md
+TELEGRAM_*SUMMARY.md
+TELEGRAM_*FIX.md
+analyze_content.js
+e2e-test-zerg.js
+test-chinese-verification.spec.ts
+弹窗问题修复报告.md
+浏览器缓存刷新指南.md
+scripts/run-dehumidifier-market-study.js
+scripts/run-telegram-connection-test.sh
+.github/workflows/release.yml
+.github/workflows/deploy-ui.yml
+.github/workflows/rotate-social-image.yml
+.github/workflows/test-signing.yml
+.github/scripts/validate-release-secrets.sh
+
 # Local verification screenshots
 verification*.png
 artifacts/

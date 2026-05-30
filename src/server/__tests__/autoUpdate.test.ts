@@ -104,7 +104,7 @@ describe('initBootHealthCheck', () => {
     vi.resetModules()
     vi.useFakeTimers()
     const fakeHome = mkdtempSync(join(tmpdir(), 'company-auto-update-home-'))
-    const userAppDir = join(fakeHome, '.zuzu', 'app')
+    const userAppDir = join(fakeHome, '.jianghu', 'app')
     mkdirSync(join(userAppDir, 'ui'), { recursive: true })
     writeFileSync(join(userAppDir, 'ui', 'index.html'), '<html>old</html>')
 
@@ -127,7 +127,7 @@ describe('initBootHealthCheck', () => {
     vi.resetModules()
     vi.useFakeTimers()
     const fakeHome = mkdtempSync(join(tmpdir(), 'company-auto-update-home-'))
-    const userAppDir = join(fakeHome, '.zuzu', 'app')
+    const userAppDir = join(fakeHome, '.jianghu', 'app')
     mkdirSync(userAppDir, { recursive: true })
     writeFileSync(join(userAppDir, 'version.json'), JSON.stringify({ version: '999.0.0' }))
 
@@ -141,6 +141,30 @@ describe('initBootHealthCheck', () => {
       vi.runAllTimers()
       expect(existsSync(userAppDir)).toBe(true)
       expect(existsSync(join(userAppDir, 'version.json'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+      rmSync(fakeHome, { recursive: true, force: true })
+    }
+  })
+
+  it('removes newer versioned user app when UI is legacy', async () => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    const fakeHome = mkdtempSync(join(tmpdir(), 'company-auto-update-home-'))
+    const userAppDir = join(fakeHome, '.jianghu', 'app')
+    mkdirSync(join(userAppDir, 'ui'), { recursive: true })
+    writeFileSync(join(userAppDir, 'version.json'), JSON.stringify({ version: '999.0.0' }))
+    writeFileSync(join(userAppDir, 'ui', 'index.html'), '<title>虫族 - AI 智能体框架</title><div>Clerk Setup</div>')
+
+    try {
+      vi.doMock('node:os', async () => {
+        const actual = await vi.importActual<typeof import('node:os')>('node:os')
+        return { ...actual, homedir: () => fakeHome }
+      })
+      const mod = await import('../autoUpdate')
+      mod.initBootHealthCheck()
+      vi.runAllTimers()
+      expect(existsSync(userAppDir)).toBe(false)
     } finally {
       vi.useRealTimers()
       rmSync(fakeHome, { recursive: true, force: true })

@@ -223,9 +223,9 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
   // Clear any stale setup-flow marker from older builds without opening a popup.
   useEffect(() => {
     if (!roomId) return
-    const requestedRoom = storageGet('zuzu_setup_flow_room')
+    const requestedRoom = storageGet('jianghu_setup_flow_room')
     if (requestedRoom && Number(requestedRoom) === roomId) {
-      storageRemove('zuzu_setup_flow_room')
+      storageRemove('jianghu_setup_flow_room')
     }
   }, [roomId])
 
@@ -578,8 +578,8 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
       setQueenModelSetup(null)
       setQueenModelFeedback(prev => ({ ...prev, [room.id]: null }))
     } catch (e) {
-      console.error('更新天机阁模型失败:', e)
-      const message = e instanceof Error ? e.message : '更新天机阁模型失败'
+      console.error('更新帮主模型失败:', e)
+      const message = e instanceof Error ? e.message : '更新帮主模型失败'
       if (!persistedModel) {
         // Revert only when model save itself failed.
         setQueenModel(prev => ({ ...prev, [room.id]: prevModel }))
@@ -816,7 +816,10 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
     { value: 'claude-opus-4-6', label: 'Opus（订阅）' },
     { value: 'claude-sonnet-4-6', label: 'Sonnet（订阅）' },
     { value: 'claude-haiku-4-5-20251001', label: 'Haiku（订阅）' },
-    { value: 'codex', label: 'Codex（ChatGPT 订阅）' },
+    { value: 'codex', label: 'OpenAI Codex（OAuth 默认 GPT）' },
+    { value: 'codex:gpt-5.2-codex', label: 'GPT-5.2-Codex（OAuth）' },
+    { value: 'codex:gpt-5.4', label: 'GPT-5.4（OAuth）' },
+    { value: 'codex:gpt-5.5', label: 'GPT-5.5（OAuth）' },
     { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini（API）' },
     { value: 'openai:gpt-4o', label: 'GPT-4o（API）' },
     { value: 'anthropic:claude-haiku-4-5-20251001', label: 'Haiku（API）' },
@@ -837,7 +840,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
   const hasWorkerModelLoaded = typeof room.workerModel === 'string' && room.workerModel.trim().length > 0
   const workerModelValue = hasWorkerModelLoaded ? room.workerModel : '__loading__'
   const workerModelOptions = [
-    { value: 'queen', label: '跟随天机阁模型' },
+    { value: 'queen', label: '跟随全局模型' },
   ]
   if (!hasWorkerModelLoaded) {
     workerModelOptions.unshift({ value: '__loading__', label: '加载中...' })
@@ -861,14 +864,14 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
   const recommendationLabel = recommendedQueenModel === 'claude'
     ? 'Claude 订阅'
     : recommendedQueenModel === 'codex'
-      ? 'Codex 订阅'
+      ? 'OpenAI Codex OAuth'
       : activeQueenAuth?.mode === 'api'
           ? 'API 密钥路径'
           : '选择配置方式'
   const recommendationHint = recommendedQueenModel
-    ? '检测到订阅，适合持续运行。'
+      ? '检测到 OAuth 登录，适合持续运行。'
     : activeQueenAuth?.mode === 'api'
-      ? '已选择 API 模型。请添加并验证密钥，避免天机阁执行失败。'
+      ? '已选择 API 模型。请添加并验证密钥，避免帮主执行失败。'
       : '暂未检测到订阅。可先使用 MiMo/API 模型；订阅连接后会自动可用。'
 
   function row(label: string, children: React.ReactNode, description?: string): React.JSX.Element {
@@ -943,7 +946,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
         issues.push(`闭关运行失败：${getErrorMessage(err)}`)
       }
 
-      // Delete all cloud stations to prevent lingering spend.
+      // Clean legacy remote resources so archived rooms do not keep spending.
       try {
         const stations = await api.cloudStations.list(room.id)
         for (const station of stations) {
@@ -952,11 +955,11 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
           try {
             await api.cloudStations.delete(room.id, stationId)
           } catch (err) {
-            issues.push(`Station #${stationId}: ${getErrorMessage(err)}`)
+            issues.push(`历史资源 #${stationId}: ${getErrorMessage(err)}`)
           }
         }
       } catch (err) {
-        issues.push(`读取执行站失败：${getErrorMessage(err)}`)
+        issues.push(`清理历史资源失败：${getErrorMessage(err)}`)
       }
 
       // Archive room (server also pauses agents).
@@ -1023,10 +1026,10 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="space-y-4">
-          {/* 天机阁 */}
+          {/* 帮主 */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-semibold text-text-secondary">天机阁</h3>
+              <h3 className="text-sm font-semibold text-text-secondary">帮主</h3>
               <button
                 onClick={() => setShowSetupGuide(true)}
                 className="text-xs px-2 py-1 rounded-lg border border-border-primary text-text-secondary hover:bg-surface-hover"
@@ -1060,7 +1063,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                     </div>
                   )}
                 </div>,
-                '天机阁使用的模型。可使用 Claude/Codex/MiMo 等本地环境或 API 密钥。'
+                '默认跟随全局模型；只有需要独立运行时才在这里单独设置。'
               )}
 
               {row(
@@ -1074,7 +1077,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
               <div className="py-2">
                 <p className="text-xs text-text-muted leading-relaxed">
                   <span className="font-medium text-text-secondary">设置结果：</span>{' '}
-                  订阅模型通常配置最省事；API 模型适合按密钥和用量精确控制成本。
+                  OAuth 登录通常配置最省事；API 模型适合按密钥和用量精确控制成本。
                 </p>
               </div>
 
@@ -1129,10 +1132,10 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                           ? '正在检查 Codex 状态...'
                           : queenSubscriptionStatus.installed
                           ? queenSubscriptionStatus.connected === true
-                            ? 'Codex 已连接'
+                            ? 'OpenAI Codex 已登录'
                             : queenSubscriptionStatus.connected === false
-                              ? 'Codex 未连接'
-                              : 'Codex 授权状态未知'
+                              ? 'OpenAI Codex 未登录'
+                              : 'OpenAI Codex 授权状态未知'
                           : '未安装 Codex CLI'
                       )}
                     </span>
@@ -1265,7 +1268,9 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                           ))}
                     </div>
                   </div>,
-                  '在运行环境中执行提供商 CLI 登录，并显示设备码输出。'
+                  queenSubscriptionProvider === 'codex'
+                    ? '通过 Codex CLI 发起 OpenAI OAuth 登录，并显示验证页面或设备码。'
+                    : '在运行环境中执行提供商 CLI 登录，并显示设备码输出。'
                 )
               )}
               {queenModelFeedback[room.id] && (
@@ -1303,7 +1308,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
               )}
 
               {/* Sessions */}
-              {row('天机阁并发镖单',
+              {row('帮主并发镖单',
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleChangeMaxTasks(room, -1)}
@@ -1317,7 +1322,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                     className="w-5 h-5 rounded-lg bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-30 text-sm font-medium text-text-secondary"
                   >+</button>
                 </div>,
-                '天机阁可并行推进的镖单数量。数值越高，占用本机资源越多。'
+                '帮主可并行推进的镖单数量。数值越高，占用本机资源越多。'
               )}
 
               {/* Cycle gap */}
@@ -1338,7 +1343,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                     { value: '7200000', label: '2 hr' },
                   ]}
                 />,
-                '天机阁两次工作循环之间的等待时间。间隔越短，用量越高。'
+                '帮主两次工作循环之间的等待时间。间隔越短，用量越高。'
               )}
 
               {/* Max turns */}
@@ -1361,7 +1366,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
 
               {/* Quiet hours */}
               <div className="py-2 space-y-2">
-                {toggleRow('安静时段', quietEnabled, () => { void handleToggleQuietHours(room) }, '在指定时间段暂停天机阁循环', quietHoursPending)}
+                {toggleRow('安静时段', quietEnabled, () => { void handleToggleQuietHours(room) }, '在指定时间段暂停帮主循环', quietHoursPending)}
                 {quietEnabled && (
                   <div className="flex items-center gap-2 pl-0">
                     <input
@@ -1383,7 +1388,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                 )}
               </div>
 
-              {/* 天机阁身份 */}
+              {/* 帮主身份 */}
               {row('昵称',
                 <div className="flex items-center gap-1.5">
                   <input
@@ -1393,7 +1398,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                     onKeyDown={e => { if (e.key === 'Enter') void handleSaveQueenNickname(room) }}
                     onBlur={() => void handleSaveQueenNickname(room)}
                     maxLength={40}
-                    placeholder="例如 天机阁"
+                    placeholder="例如 帮主一号"
                     className="w-28 text-sm border border-border-primary rounded-lg px-2.5 py-1.5 bg-surface-primary text-text-primary"
                   />
                   {editingQueenNickname.trim() !== (room.queenNickname ?? '') && (
@@ -1403,7 +1408,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                     >保存</button>
                   )}
                 </div>,
-                '帮派内部展示和交付记录中使用的天机阁名称。'
+                '帮派内部展示和交付记录中使用的帮主名称。'
               )}
 
               {/* Room runtime start/stop */}
@@ -1446,7 +1451,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
                   options={workerModelOptions}
                   disabled={!hasWorkerModelLoaded}
                 />,
-                '选择弟子模型。“跟随天机阁模型”会继承天机阁当前模型；API 模型使用对应密钥。'
+                '默认跟随全局模型；只有需要独立运行时才设置单独模型。'
               )}
             </div>
           </div>
@@ -1484,7 +1489,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
           <div>
             <h3 className="text-sm font-semibold text-text-secondary mb-1">议事堂决策</h3>
             <div className="bg-surface-secondary shadow-sm rounded-lg p-3 space-y-2">
-              <p className="text-xs text-text-muted mb-2">控制天机阁无法单独判断时如何组织议事堂。弟子也可以通过本地本地江湖工具调整。</p>
+          <p className="text-xs text-text-muted mb-2">控制帮主无法单独判断时如何组织议事堂。弟子也可以通过本地江湖工具调整。</p>
               <div className="grid grid-cols-3 gap-2">
                 {([
                   { key: 'open', label: '开放讨论', desc: '直接讨论，过程可见', match: !room.config.sealedBallot && !room.config.voterHealth && room.config.minVoters === 0 },
@@ -1536,7 +1541,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
         <h3 className="text-sm font-semibold text-status-error mb-2">危险操作</h3>
         <div className="border border-status-error rounded-lg p-4">
           <p className="text-sm text-text-secondary mb-1">归档这个帮派</p>
-          <p className="text-xs text-text-muted mb-3">停止天机阁，取消执行站，并从侧边栏隐藏帮派。</p>
+          <p className="text-xs text-text-muted mb-3">停止帮主，并从侧边栏隐藏帮派。</p>
           <button
             onClick={() => setShowArchiveConfirm(true)}
             disabled={archiveBusy}
@@ -1598,7 +1603,7 @@ export function RoomSettingsPanel({ roomId }: RoomSettingsPanelProps): React.JSX
       {showArchiveConfirm && (
         <ConfirmDialog
           title={`归档「${room.name}」？`}
-          message="这会停止天机阁，取消执行站，并隐藏帮派。"
+          message="这会停止帮主，并隐藏帮派。"
           confirmLabel="归档帮派"
           danger
           onConfirm={() => {

@@ -5,6 +5,7 @@ import { isCloudDeployment, getToken } from '../auth'
 import { ensureCloudRoomToken, getRoomCloudId, getStoredCloudRoomToken } from '../../shared/cloud-sync'
 import { triggerAgent } from '../../shared/agent-loop'
 import { runClerkAssistantTurn } from './clerk'
+import { isSensitiveProviderError } from '../clerk-profile'
 import { getClerkNotifyPreferences } from '../clerk-notifications'
 import { insertClerkMessageAndEmit } from '../clerk-message-events'
 
@@ -111,12 +112,12 @@ function parseInteger(value: string, fallback: number = 0): number {
 }
 
 function getContactSecret(): string {
-  const configured = (process.env.ZUZU_CONTACT_SECRET || '').trim()
+  const configured = (process.env.JIANGHU_CONTACT_SECRET || '').trim()
   if (configured) return configured
   try {
     return getToken()
   } catch {
-    return 'zuzu-contact-secret'
+    return 'jianghu-contact-secret'
   }
 }
 
@@ -140,11 +141,11 @@ function hashesEqualHex(a: string, b: string): boolean {
 
 function getCloudApiBase(): string {
   // 云端API已禁用 - 使用本地验证系统
-  return (process.env.ZUZU_CLOUD_API ?? '').replace(/\/+$/, '')
+  return (process.env.JIANGHU_CLOUD_API ?? '').replace(/\/+$/, '')
 }
 
 function getTelegramBotUsername(): string {
-  const configured = (process.env.ZUZU_TELEGRAM_BOT_USERNAME || '').trim().replace(/^@+/, '')
+  const configured = (process.env.JIANGHU_TELEGRAM_BOT_USERNAME || '').trim().replace(/^@+/, '')
   return configured || DEFAULT_TELEGRAM_BOT_USERNAME
 }
 
@@ -829,7 +830,9 @@ export async function pollQueenInbox(
                 room.id,
                 'system',
                 `Clerk reply delivery failed via ${safeChannel}`,
-                turn.error?.slice(0, 200) ?? 'Unable to deliver Clerk reply'
+                isSensitiveProviderError(turn.error)
+                  ? '天机阁暂时无法调用当前模型，已保留本地判断能力。'
+                  : turn.error?.slice(0, 200) ?? 'Unable to deliver Clerk reply'
               )
             }
           } finally {

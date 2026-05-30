@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-We are committed to making participation in Quoroom a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity, level of experience, nationality, personal appearance, race, religion, or sexual identity and orientation.
+We are committed to making participation in 江湖 a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity, level of experience, nationality, personal appearance, race, religion, or sexual identity and orientation.
 
 ## Our Standards
 
@@ -24,7 +24,7 @@ We are committed to making participation in Quoroom a harassment-free experience
 
 Project maintainers are responsible for clarifying standards and are expected to take appropriate and fair corrective action in response to any instances of unacceptable behavior.
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team at **hello@quoroom.ai**. All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported through private maintainer contact listed by the current GitHub repository owner. All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate.
 
 ## Attribution
 

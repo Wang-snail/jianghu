@@ -4,18 +4,20 @@
  * 江湖 CLI — Console mode entry point
  *
  * Usage:
- *   zuzu mcp                # Start MCP server (stdio)
- *   zuzu serve [port]       # Start HTTP/WebSocket API server
+ *   jianghu mcp                # Start MCP server (stdio)
+ *   jianghu serve [port]       # Start HTTP/WebSocket API server
  */
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
+import { isLegacyUiDir } from '../shared/legacy-user-app'
 
 declare const __APP_VERSION__: string
 
-const BOOTSTRAP_GUARD_ENV = 'ZUZU_BOOTSTRAPPED_USER_CLI'
-const USER_APP_DIR = path.join(homedir(), '.zuzu', 'app')
+const BOOTSTRAP_GUARD_ENV = 'JIANGHU_BOOTSTRAPPED_USER_CLI'
+const USER_APP_DIR = path.join(homedir(), '.jianghu', 'app')
+const USER_UI_DIR = path.join(USER_APP_DIR, 'ui')
 const USER_VERSION_PATH = path.join(USER_APP_DIR, 'version.json')
 const USER_CLI_PATH = path.join(USER_APP_DIR, 'lib', 'cli.js')
 const BUNDLED_NODE_MODULES = path.join(__dirname, 'node_modules')
@@ -75,6 +77,7 @@ function tryBootstrapUserCli(): boolean {
   if (process.env[BOOTSTRAP_GUARD_ENV] === '1') return false
   if (!fs.existsSync(USER_CLI_PATH) || !fs.existsSync(USER_VERSION_PATH)) return false
   if (path.resolve(USER_CLI_PATH) === path.resolve(__filename)) return false
+  if (isLegacyUiDir(USER_UI_DIR)) return false
 
   const userVersion = getUserVersion()
   if (!userVersion) return false
@@ -127,14 +130,14 @@ function runBundledCli(): void {
 江湖 — 本地 AI 数字组织生态系统
 
 Usage:
-  zuzu mcp           Start MCP server (stdio transport)
-  zuzu serve [port]  Start HTTP/WebSocket API server (default: 4700)
-  zuzu update        Check for and apply updates
-  zuzu uninstall     Remove 江湖 and all data
-  zuzu help          Show this help message
+  jianghu mcp           Start MCP server (stdio transport)
+  jianghu serve [port]  Start HTTP/WebSocket API server (default: 4700)
+  jianghu update        Check for and apply updates
+  jianghu uninstall     Remove 江湖 and all data
+  jianghu help          Show this help message
 
 Dashboard:  http://localhost:4700
-Website:    https://zuzu.ai
+Website:    https://github.com/Wang-snail/jianghu
 `)
       break
     }

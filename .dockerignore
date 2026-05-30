@@ -1,5 +1,30 @@
 node_modules
 out
 .git
-.env*
+.github
+
+# Local runtime state and credentials must never enter public images.
+.env
+.env.*
+*.env
+deploy/*.env
+.company-local-dev
+.company-local-e2e
+.company-dev
+api.token
+auth.tokens.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated reports and local verification artifacts.
+artifacts
+playwright-report
+test-results
+verification*.png
 *.log
+tsconfig.tsbuildinfo
+
+# OS/editor noise.
+.DS_Store
+*.swp

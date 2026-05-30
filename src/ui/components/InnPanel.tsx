@@ -2,7 +2,7 @@ import { WORKER_TEMPLATES, type WorkerTemplatePreset } from '@shared/worker-temp
 import { usePolling } from '../hooks/usePolling'
 import { api } from '../lib/client'
 import type { Worker } from '@shared/types'
-import { isAssignableWorker } from '@shared/worker-roles'
+import { isAssignableWorker, isInnWorker } from '@shared/worker-roles'
 
 function templateSkills(t: WorkerTemplatePreset): string[] {
   const match = t.systemPrompt.match(/默认功法方向：\n- ([^\n]+)/)
@@ -95,7 +95,7 @@ function maturityLevel(worker: Worker): { label: string; note: string; color: st
 
 export function InnPanel(): React.JSX.Element {
   const { data: workers } = usePolling<Worker[]>(() => api.workers.list().catch(() => []), 30000)
-  const activeWorkers = (workers ?? []).filter(worker => isAssignableWorker(worker))
+  const activeWorkers = (workers ?? []).filter(worker => isInnWorker(worker))
   const recruitableTemplates = WORKER_TEMPLATES.filter(t => isAssignableWorker({
     id: 0,
     name: t.name,
@@ -155,7 +155,7 @@ export function InnPanel(): React.JSX.Element {
                         <div className="text-xs text-text-muted">{worker.role || '通用弟子'} · {statusLabel(worker)}</div>
                       </div>
                       <span className="shrink-0 rounded bg-surface-tertiary px-1.5 py-0.5 text-[11px] text-text-secondary">
-                        {worker.roomId ? '已入帮' : '客栈候选'}
+                        客栈候选
                       </span>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2 rounded bg-surface-primary px-2 py-1">

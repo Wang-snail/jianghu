@@ -15,6 +15,7 @@ import { registerWalletRoutes } from './wallet'
 import { registerCredentialRoutes } from './credentials'
 import { registerStationRoutes } from './stations'
 import { registerRoomMessageRoutes } from './room-messages'
+import { registerTrainingRoutes } from './training'
 import { registerProviderRoutes } from './providers'
 import { registerContactRoutes } from './contacts'
 import { registerClerkRoutes } from './clerk'
@@ -37,6 +38,7 @@ export function registerAllRoutes(router: Router): void {
   registerCredentialRoutes(router)
   registerStationRoutes(router)
   registerRoomMessageRoutes(router)
+  registerTrainingRoutes(router)
   registerProviderRoutes(router)
   registerContactRoutes(router)
   registerClerkRoutes(router)

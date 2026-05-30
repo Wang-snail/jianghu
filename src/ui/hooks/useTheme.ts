@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 
-const STORAGE_KEY = 'zuzu_theme'
+const STORAGE_KEY = 'jianghu_theme'
 const DEFAULT_THEME: Theme = 'dark'
 
 function getSystemPreference(): 'light' | 'dark' {

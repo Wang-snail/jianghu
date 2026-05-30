@@ -1,6 +1,7 @@
 import type { Router } from '../router'
 import * as queries from '../../shared/db-queries'
 import { eventBus } from '../event-bus'
+import { getRoomCloudId } from '../../shared/cloud-sync'
 
 export function registerRoomMessageRoutes(router: Router): void {
   router.get('/api/rooms/:roomId/messages', (ctx) => {
@@ -14,7 +15,9 @@ export function registerRoomMessageRoutes(router: Router): void {
     const body = ctx.body as Record<string, unknown> || {}
     const subject = typeof body.subject === 'string' ? body.subject.trim() : ''
     const msgBody = typeof body.body === 'string' ? body.body.trim() : ''
-    const toRoomId = typeof body.toRoomId === 'string' ? body.toRoomId.trim() : ''
+    const rawToRoomId = typeof body.toRoomId === 'string' ? body.toRoomId.trim() : ''
+    const localTarget = rawToRoomId.match(/^local:(\d+)$/)
+    const toRoomId = localTarget ? getRoomCloudId(Number(localTarget[1])) : rawToRoomId
     if (!msgBody) return { status: 400, error: 'body is required' }
     if (!toRoomId) return { status: 400, error: 'toRoomId is required' }
 
