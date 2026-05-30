@@ -1,6 +1,6 @@
 # 江湖
 
-![江湖宣传海报](assets/posters/jianghu-hero.png)
+![江湖宣传海报](assets/posters/jianghu-simple-hero.svg)
 
 江湖是一个本地优先的 **AI 数字组织生态系统**。
 

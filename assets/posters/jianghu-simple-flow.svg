@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">江湖运行流程</title>
+  <desc id="desc">一句委托到成果交付的简洁流程图</desc>
+  <rect width="1600" height="900" fill="#0b1020"/>
+  <text x="120" y="150" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="72" font-weight="800" fill="#f8fafc">一句委托，江湖开始运作</text>
+  <text x="122" y="210" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="28" fill="#94a3b8">不操作复杂工作流，只确认目标和结果。</text>
+  <g transform="translate(120 340)">
+    <g fill="#111827" stroke="#334155" stroke-width="2">
+      <rect width="300" height="180" rx="24"/>
+      <rect x="430" width="300" height="180" rx="24"/>
+      <rect x="860" width="300" height="180" rx="24"/>
+      <rect x="1290" width="190" height="180" rx="24"/>
+    </g>
+    <g stroke="#fbbf24" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M320 90 H405"/>
+      <path d="M390 72 L410 90 L390 108"/>
+      <path d="M750 90 H835"/>
+      <path d="M820 72 L840 90 L820 108"/>
+      <path d="M1180 90 H1265"/>
+      <path d="M1250 72 L1270 90 L1250 108"/>
+    </g>
+    <g font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif">
+      <text x="42" y="78" font-size="34" font-weight="800" fill="#fbbf24">1</text>
+      <text x="92" y="78" font-size="34" font-weight="800" fill="#f8fafc">提出目标</text>
+      <text x="92" y="124" font-size="22" fill="#94a3b8">用户只说想完成什么</text>
+      <text x="472" y="78" font-size="34" font-weight="800" fill="#fbbf24">2</text>
+      <text x="522" y="78" font-size="34" font-weight="800" fill="#f8fafc">天机阁拆解</text>
+      <text x="522" y="124" font-size="22" fill="#94a3b8">澄清需求，建立任务树</text>
+      <text x="902" y="78" font-size="34" font-weight="800" fill="#fbbf24">3</text>
+      <text x="952" y="78" font-size="34" font-weight="800" fill="#f8fafc">帮派执行</text>
+      <text x="952" y="124" font-size="22" fill="#94a3b8">帮主分工，弟子协作</text>
+      <text x="1332" y="78" font-size="34" font-weight="800" fill="#fbbf24">4</text>
+      <text x="1382" y="78" font-size="34" font-weight="800" fill="#f8fafc">交付</text>
+      <text x="1332" y="124" font-size="22" fill="#94a3b8">结果可追溯</text>
+    </g>
+  </g>
+  <rect x="120" y="700" width="1360" height="88" rx="22" fill="#0f172a" stroke="#1e293b"/>
+  <text x="800" y="754" text-anchor="middle" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="28" fill="#d1d5db">需求澄清 · 任务拆解 · 专人专事 · 过程监督 · 结果复盘</text>
+</svg>

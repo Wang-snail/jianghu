@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">江湖 - AI 数字组织生态系统</title>
+  <desc id="desc">江湖开源项目简洁宣传图</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1020"/>
+      <stop offset="58%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#10140f"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <g opacity="0.18" stroke="#5eead4" stroke-width="1">
+    <path d="M120 690 H1480"/>
+    <path d="M120 210 H1480"/>
+    <path d="M250 120 V780"/>
+    <path d="M1350 120 V780"/>
+  </g>
+  <circle cx="800" cy="450" r="160" fill="#0f766e" opacity="0.18" filter="url(#softGlow)"/>
+  <circle cx="800" cy="450" r="96" fill="#111827" stroke="#5eead4" stroke-width="3"/>
+  <text x="800" y="434" text-anchor="middle" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="34" font-weight="700" fill="#f8fafc">天机阁</text>
+  <text x="800" y="486" text-anchor="middle" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="22" fill="#93c5fd">调度核心</text>
+  <g fill="#0f172a" stroke="#334155" stroke-width="2">
+    <rect x="190" y="360" width="210" height="100" rx="18"/>
+    <rect x="1198" y="360" width="210" height="100" rx="18"/>
+    <rect x="514" y="650" width="210" height="100" rx="18"/>
+    <rect x="876" y="650" width="210" height="100" rx="18"/>
+    <rect x="514" y="150" width="210" height="100" rx="18"/>
+    <rect x="876" y="150" width="210" height="100" rx="18"/>
+  </g>
+  <g stroke="#5eead4" stroke-width="3" stroke-linecap="round" opacity="0.65">
+    <path d="M400 410 C520 410 600 445 704 450"/>
+    <path d="M896 450 C1000 445 1080 410 1198 410"/>
+    <path d="M704 500 C665 570 635 610 619 650"/>
+    <path d="M896 500 C935 570 965 610 981 650"/>
+    <path d="M704 400 C665 330 635 290 619 250"/>
+    <path d="M896 400 C935 330 965 290 981 250"/>
+  </g>
+  <g font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#e5e7eb">
+    <text x="295" y="420" text-anchor="middle">用户委托</text>
+    <text x="1303" y="420" text-anchor="middle">项目成果</text>
+    <text x="619" y="710" text-anchor="middle">临时帮派</text>
+    <text x="981" y="710" text-anchor="middle">风险审计</text>
+    <text x="619" y="210" text-anchor="middle">客栈</text>
+    <text x="981" y="210" text-anchor="middle">藏经阁</text>
+  </g>
+  <text x="120" y="145" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="88" font-weight="800" fill="#fbbf24">江湖</text>
+  <text x="120" y="218" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700" fill="#f8fafc">AI 数字组织生态系统</text>
+  <text x="120" y="274" font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="26" fill="#94a3b8">把目标交给江湖，让组织自动运作。</text>
+  <g font-family="PingFang SC, Noto Sans CJK SC, Microsoft YaHei, sans-serif" font-size="24" fill="#d1d5db">
+    <text x="120" y="814">本地优先</text>
+    <text x="286" y="814">·</text>
+    <text x="330" y="814">专人专事</text>
+    <text x="496" y="814">·</text>
+    <text x="540" y="814">证据沉淀</text>
+    <text x="706" y="814">·</text>
+    <text x="750" y="814">风险审计</text>
+  </g>
+</svg>
